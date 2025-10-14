@@ -118,6 +118,9 @@ def write_movie_nfo(dst_video: Path, computed: dict, base_meta: dict | None, ove
         return
     base_meta = base_meta or {}
     merged = merge_first(base_meta, computed)
+    subs = merge_subtitles(base_meta.get("subtitles"), computed.get("subtitles"))
+    if subs:
+        merged["subtitles"] = subs
     root = ET.Element("movie")
     def set_el(tag, val):
         if val not in (None,"",[]):
@@ -138,7 +141,7 @@ def write_movie_nfo(dst_video: Path, computed: dict, base_meta: dict | None, ove
     if subs:
         subs_el = ET.SubElement(root, "subtitles")
         for s in subs:
-            ET.SubElement(subs_el, "subtitle", {"file": s.get("file",""), "lang": s.get("lang","")})
+            ET.SubElement(subs_el, "subtitle", {"file": s.get("file", ""), "lang": s.get("lang", "")})
 
     xml_indent(root)
     xml_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=True)
@@ -153,6 +156,12 @@ def write_episode_nfo(dst_video: Path, computed: dict, base_meta: dict | None, o
         return
     base_meta = base_meta or {}
     merged = merge_first(base_meta, computed)
+
+    subs = merge_subtitles(base_meta.get("subtitles"), computed.get("subtitles"))
+    if subs:
+        merged["subtitles"] = subs
+
+
     root = ET.Element("episodedetails")
     def set_el(tag, val):
         if val not in (None,"",[]):
@@ -172,11 +181,13 @@ def write_episode_nfo(dst_video: Path, computed: dict, base_meta: dict | None, o
     set_el("filenameandpath", merged.get("filenameandpath"))
     set_el("originalfilename", merged.get("originalfilename"))
     set_el("sourcepath", merged.get("sourcepath"))
+
     subs = merged.get("subtitles") or []
     if subs:
         subs_el = ET.SubElement(root, "subtitles")
         for s in subs:
-            ET.SubElement(subs_el, "subtitle", {"file": s.get("file",""), "lang": s.get("lang","")})
+            ET.SubElement(subs_el, "subtitle", {"file": s.get("file", ""), "lang": s.get("lang", "")})
+            
 
     xml_indent(root)
     xml_bytes = ET.tostring(root, encoding="utf-8", xml_declaration=True)

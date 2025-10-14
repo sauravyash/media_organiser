@@ -73,7 +73,11 @@ def carry_poster_with_sieve(src_context: Path, dst_dir: Path, policy: str,
                             mover, mode: str, dry_run: bool):
     if policy in ("off", "skip"):
         return
+
     candidates = []
+    if src_context.is_file():
+        candidates.append(src_context)
+
     for base in (src_context.parent, src_context.parent.parent):
         if base and base.exists():
             for nm in POSTER_NAMES:

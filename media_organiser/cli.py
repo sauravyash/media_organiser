@@ -2,7 +2,8 @@ import argparse
 import re
 from pathlib import Path
 from .constants import VIDEO_EXTS, YEAR_PATTERN
-from .naming import detect_quality, is_tv_episode, movie_name_from_parents, guess_movie_name_from_file
+from .naming import detect_quality, is_tv_episode, movie_name_from_parents, guess_movie_name_from_file, clean_name, \
+    _clean_title
 from .nfo import (
     find_nfo, parse_local_nfo_for_title, read_nfo_to_meta, nfo_path_for,
     write_movie_nfo, write_episode_nfo, merge_first, merge_subtitles
@@ -65,14 +66,18 @@ def main():
         is_tv, info = is_tv_episode(path.name)
 
         if is_tv:
-            series = info["series"]; s_no = info["season"]; e_no = info["ep1"]; e2 = info.get("ep2")
+            series = _clean_title(info["series"])
+
+            s_no = info["season"]
+            e_no = info["ep1"]
+            e2 = info.get("ep2")
             ep_tag = f"S{s_no:02d}E{e_no:02d}" + (f"-E{e2:02d}" if e2 else "")
             season_folder = "Specials" if s_no == 0 else f"Season {s_no:02d}"
             season_dir = tv_root / series / season_folder
             season_dir.mkdir(parents=True, exist_ok=True)
             out_file = season_dir / f"{series} - {ep_tag} ({quality}){path.suffix.lower()}"
 
-            if args.dupe-mode != "off":  # noqa
+            if args.dupe_mode != "off":  # noqa
                 dup = is_duplicate_in_dir(path, season_dir, args.dupe_mode)
                 if dup:
                     print(f"SKIP DUPLICATE: {path} == {dup} [{args.dupe_mode}]")

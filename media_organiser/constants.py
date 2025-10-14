@@ -6,11 +6,13 @@ SUB_EXTS   = {".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".sup", ".ttml", "
 POSTER_NAMES = ("poster.jpg", "folder.jpg", "cover.jpg")
 
 SEASON_PATTERNS = [
-    re.compile(r"(?i)(?P<series>.+?)[\.\s_\-]*S(?P<season>\d{1,2})[\.\s_\-]*E(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]*E?(?P<ep2>\d{1,3}))?"),
-    re.compile(r"(?i)(?P<series>.+?)[\.\s_\-]*(?P<season>\d{1,2})x(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]*(?P<ep2>\d{1,3}))?"),
-    re.compile(r"(?i)(?P<series>.+?)[\.\s_\-]*S(?P<season>\d{1,2})[\.\s_\-]+(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]+(?P<ep2>\d{1,3}))?"),
-    re.compile(r"(?i)(?P<series>.+?)[\.\s_\-]*(?P<season>\d{1,2})[\.\s_\-]*E(?P<ep1>\d{1,3})"),
+    re.compile(r"(?i)(?P<season>\d{1,2})x(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]*(?P<ep2>\d{1,3}))?"),
+    re.compile(r"(?i)S(?P<season>\d{1,2})[\.\s_\-]*E(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]*E?(?P<ep2>\d{1,3}))?"),
+    re.compile(r"(?i)S(?P<season>\d{1,2})[\.\s_\-]+(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]+(?P<ep2>\d{1,3}))?"),
+    re.compile(r"(?i)(?P<season>\d{1,2})[\.\s_\-]*E(?P<ep1>\d{1,3})"),
 ]
+
+
 
 YEAR_PATTERN       = re.compile(r"(?:(?:19|20)\d{2})")
 RESOLUTION_PATTERN = re.compile(r"(?i)\b(480p|576p|720p|1080p|2160p|4320p|4k|8k|uhd|hdr)\b")
@@ -19,5 +21,5 @@ GENERIC_DIRS       = {"subs", "subtitles", "other", "cd 1", "cd 2", "sample"}
 SCENE_WORDS        = re.compile(r"(?i)\b(BluRay|WEB[- ]?DL|WEBRip|WEBDL|BRRip|HDRip|DVDRip|x264|x265|h\.?264|h\.?265|HEVC|AV1|AAC|DTS|DDP?5\.1|10bit|8bit|Atmos|Remux|Proper|Repack|Extended|IMAX|HDTV|XviD|ION10|LOL|KILLERS|SVA|mSD|STRiFE|GalaxyTV)\b")
 
 SIDE_SUFFIX_RE = re.compile(r"(?i)^({base})(?P<suffix>(?:[ ._\-](?!S\d{1,2}E)\w[\w.\-]*)?)$")
-ROOT = Path(".")
+ROOT = Path("..")
 
