@@ -59,7 +59,7 @@ pytest -q
 Generate coverage:
 
 ```bash
-pytest --cov=1760521320media_organiser --cov-report=term --cov-report=xml
+pytest --cov=1760542523media_organiser --cov-report=term --cov-report=xml
 ```
 
 ---
