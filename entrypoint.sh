@@ -5,7 +5,7 @@ IMPORT_DIR="${IMPORT_DIR:-/data/import}"
 LIB_DIR="${LIB_DIR:-/data/library}"
 
 echo "[startup] organising once..."
-python /app/organise_media.py "$IMPORT_DIR" "$LIB_DIR" --mode move
+python /app/main.py "$IMPORT_DIR" "$LIB_DIR" --mode move
 
 echo "[watch] monitoring $IMPORT_DIR for new or changed files..."
 # Install hint: provided via Dockerfile (inotify-tools)

@@ -29,25 +29,36 @@ def find_nfo(path: Path) -> Optional[Path]:
         for p in parent.glob("*.nfo"): return p
     return None
 
+
+def _normalize_title_text(s: str) -> str:
+    # replace dots/underscores/multiple whitespace with single spaces
+    s = re.sub(r"[._]+", " ", s)
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
 def parse_local_nfo_for_title(nfo_path: Path) -> Optional[str]:
     try:
         raw = nfo_path.read_text(errors="ignore").strip()
         try:
             root = ET.fromstring(raw)
             node = root if root.tag.lower() in ("movie","tvshow","episodedetails") else root.find("movie")
-            if node is None: node = root
+            if node is None:
+                node = root
             el = node.find("title")
             if el is not None and (el.text or "").strip():
-                from .naming import clean_name, titlecase_soft
-                return titlecase_soft(clean_name(el.text))
+                from .naming import titlecase_soft  # ← do not use clean_name here
+                text = _normalize_title_text(el.text)
+                return titlecase_soft(text) if text else None
         except ET.ParseError:
             m = re.search(r"(?im)^\s*title\s*[:=]\s*(.+)$", raw)
             if m:
-                from .naming import clean_name, titlecase_soft
-                return titlecase_soft(clean_name(m.group(1).strip()))
+                from .naming import titlecase_soft  # ← same here
+                text = _normalize_title_text(m.group(1))
+                return titlecase_soft(text) if text else None
     except Exception:
         pass
     return None
+
 
 def read_nfo_to_meta(nfo_path: Path) -> dict:
     meta: dict = {}
