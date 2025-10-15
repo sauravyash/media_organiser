@@ -81,35 +81,4 @@ badge_svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}"
 """
 (OUT_DIR / "badge.svg").write_text(badge_svg)
 
-# --- graph.svg (sparkline over time) ---
-points = [p["pct"] for p in history] or [pct]
-n = len(points)
-W, H, P = max(220, 20*n), 60, 6  # width scales with points
-if n == 1:
-    points = points * 2
-    n = 2
-
-ymin, ymax = min(points), max(points)
-if abs(ymax - ymin) < 1e-6:
-    ymin, ymax = ymin - 1, ymax + 1
-
-def map_xy(i, y):
-    x = P + i * (W - 2*P) / (n - 1)
-    # invert y for svg
-    yy = P + (H - 2*P) * (1 - (y - ymin) / (ymax - ymin))
-    return x, yy
-
-poly = " ".join(f"{map_xy(i,y)[0]:.1f},{map_xy(i,y)[1]:.1f}" for i,y in enumerate(points))
-latest = points[-1]
-graph_svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" role="img" aria-label="coverage history">
-  <rect x="0" y="0" width="{W}" height="{H}" fill="#0b0e14"/>
-  <polyline fill="none" stroke="{color}" stroke-width="2" points="{poly}"/>
-  <circle cx="{map_xy(n-1, latest)[0]:.1f}" cy="{map_xy(n-1, latest)[1]:.1f}" r="3" fill="{color}"/>
-  <text x="{W - 6}" y="{H - 6}" fill="#cbd5e1" font-family="ui-sans,system-ui,Segoe UI,Helvetica,Arial" font-size="11" text-anchor="end">
-    {pct_str} • {now}
-  </text>
-</svg>
-"""
-(OUT_DIR / "graph.svg").write_text(graph_svg)
-
 print(f"wrote: {OUT_DIR/'badge.svg'}, {OUT_DIR/'graph.svg'}, {HIST}")
