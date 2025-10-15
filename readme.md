@@ -1,12 +1,7 @@
 # Media Organiser (offline)
 
-[![Python 3.10](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.10)](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml)
 [![Python 3.11](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.11)](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml)
-[![Python 3.12](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.12)](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml)
-
-![Coverage](https://github.com/sauravyash/media_organiser/coverage/badge.svg)
-![Coverage graph](https://github.com/sauravyash/media_organiser/coverage/graph.svg)
-
+![Coverage](coverage/badge.svg)
 
 A fast, offline Python tool that **sorts** your media library, **copies/moves** sidecar subtitles, and **writes/merges NFOs**—no internet calls and no tag embedding in the media files.
 
