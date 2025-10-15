@@ -46,7 +46,8 @@ def main():
     aspect_lo, aspect_hi = parse_range_pair(args.poster_aspect, "-", float)
     bad_words = [w.strip().lower() for w in args.poster_keywords.split(",") if w.strip()]
 
-    for path in src_root.rglob("*"):
+    items = list(src_root.rglob("*"))
+    for path in items:
         if not path.is_file(): continue
         if path.suffix.lower() not in VIDEO_EXTS: continue
 
