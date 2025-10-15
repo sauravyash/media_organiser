@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="220" height="60" role="img" aria-label="coverage history">
-  <rect x="0" y="0" width="220" height="60" fill="#0b0e14"/>
-  <polyline fill="none" stroke="#a4a61d" stroke-width="2" points="6.0,30.0 214.0,30.0"/>
-  <circle cx="214.0" cy="30.0" r="3" fill="#a4a61d"/>
-  <text x="214" y="54" fill="#cbd5e1" font-family="ui-sans,system-ui,Segoe UI,Helvetica,Arial" font-size="11" text-anchor="end">
-    70.5% • 2025-10-15
-  </text>
-</svg>
