@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends inotify-tools \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY media_organiser/* /app/*
+COPY . /app
 RUN chmod +x /app/entrypoint.sh
 
 # No Python deps required
