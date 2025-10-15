@@ -28,7 +28,8 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest -q --maxfail=1 --disable-warnings
+          pytest -q --maxfail=1 --disable-warnings \
+                 --cov=. --cov-report=xml --cov-report=term
 
       - name: Generate local coverage SVGs
         run: |
@@ -45,3 +46,4 @@ jobs:
             git commit -m "ci: update coverage badge/graph [skip ci]"
             git push
           fi
+      
