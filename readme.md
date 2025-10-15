@@ -1,15 +1,10 @@
 # Media Organiser (offline)
 
+[![Python 3.10](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.10)](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml)
+[![Python 3.11](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.11)](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml)
+[![Python 3.12](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.12)](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml)
+
 A fast, offline Python tool that **sorts** your media library, **copies/moves** sidecar subtitles, and **writes/merges NFOs**—no internet calls and no tag embedding in the media files.
-
-## CI Status
-
-| Python version | Status                                                                                                                                                                                                |
-|---------------:|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 3.10           | [![3.10](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.10)](https://github.com/yashagasti/media-organiser/actions/workflows/ci.yml) |
-| 3.11           | [![3.11](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.11)](https://github.com/yashagasti/media-organiser/actions/workflows/ci.yml)   |
-| 3.12           | [![3.12](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.12)](https://github.com/yashagasti/media-organiser/actions/workflows/ci.yml)   |
-
 
 ```
 /movies/<Title>/<Title> (<quality>).<ext>
@@ -28,7 +23,92 @@ A fast, offline Python tool that **sorts** your media library, **copies/moves** 
 
 ---
 
-## Project layout
+## 🧪 CI Status
+
+| Python version |                                                                                                Status                                                                                                 |
+| -------------: |:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
+|           3.10 | [![3.10](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.10)](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml) |
+|           3.11 | [![3.11](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.11)](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml) |
+|           3.12 | [![3.12](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.12)](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml) |
+
+This project is tested automatically on each push and pull request using [pytest](https://docs.pytest.org/) across Python 3.10–3.12. Coverage is collected and stored as build artifacts.
+
+---
+
+## 🧪 Testing
+
+This repository uses **pytest** for integration and unit testing. Major test coverage includes:
+
+* **CLI integration** – end-to-end execution of organise/move and NFO writing
+* **Duplicate detection** – hash-based and size-based dupe handling
+* **Naming and quality detection** – including `SxxExx`, `2xNN`, and `UHD/8K` normalization
+* **NFO writing and merge-first logic**
+* **Poster sieve** (optional; only runs if `Pillow` is installed)
+* **Sidecar subtitles** handling
+
+### Running tests locally
+
+```bash
+python -m pip install -U pip
+pip install pytest
+# Optional (enables poster sieve test)
+pip install Pillow
+
+pytest -q
+```
+
+Generate coverage:
+
+```bash
+pytest --cov=media_organiser --cov-report=term --cov-report=xml
+```
+
+---
+
+## 🐳 Docker / Compose
+
+Media Organiser is Docker-ready. An example configuration:
+
+```yaml
+# docker-compose.yml
+services:
+  media-organiser:
+    build: ./media_organiser
+    container_name: media-organiser
+    restart: unless-stopped
+    environment:
+      IMPORT_DIR: /data/import
+      LIB_DIR: /data/library
+    volumes:
+      - /data/import:/data/import
+      - /data/content:/data/library
+```
+
+Entrypoint (`entrypoint.sh`) automatically watches the import folder for new media and runs the organiser:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+IMPORT_DIR="${IMPORT_DIR:-/data/import}"
+LIB_DIR="${LIB_DIR:-/data/library}"
+
+echo "[startup] organising once..."
+python /app/organise_media.py "$IMPORT_DIR" "$LIB_DIR" --mode move
+
+echo "[watch] monitoring $IMPORT_DIR for new or changed files..."
+inotifywait -m -r -e close_write,create,move,delete "$IMPORT_DIR" | while read -r _; do
+  sleep 20
+  echo "[watch] change detected — organising..."
+  python /app/main.py "$IMPORT_DIR" "$LIB_DIR" --mode move
+done
+```
+
+This allows you to drop media into the import folder and let the container do the rest.
+
+---
+
+## 📁 Project layout
 
 ```
 media_organiser/
@@ -46,28 +126,25 @@ media_organiser/
 
 ---
 
-## Requirements
+## 📦 Requirements
 
 * **Python 3.10+**
 * No mandatory third-party packages.
-* (Optional) **Pillow** for better poster checks (`pip install Pillow`) if you enable the poster sieve.
+* (Optional) **Pillow** for poster sieve support.
 
 ---
 
-## Installation
-
-Clone or copy the `media_organiser` folder somewhere on your PYTHONPATH, or just run in place:
+## 🚀 Installation
 
 ```bash
-# from the directory that contains media_organiser/
+git clone https://github.com/sauravyash/media_organiser.git
+cd media_organiser
 python -m media_organiser --help
 ```
 
-If you prefer a script entry point, add your own tiny wrapper or package it later—this repo is ready for that.
-
 ---
 
-## Usage
+## 🧰 Usage
 
 ```bash
 python -m media_organiser SOURCE [DEST]
@@ -83,208 +160,50 @@ python -m media_organiser SOURCE [DEST]
   [--poster-keywords kw1,kw2,...]
 ```
 
-### Arguments
+Key flags:
 
-* `SOURCE` – folder to scan recursively.
-* `DEST` – destination root (defaults to in-place if omitted).
-* `--mode` – `move` (default) or `copy`.
-* `--dry-run` – print actions, make no changes.
-* `--dupe-mode` (dest-side duplicate detection in the target **movie folder / season folder**):
-
-  * `off`  – never consider as duplicate (will fall back to ` (2)` suffixes)
-  * `name` – same **normalised** stem (ignoring quality) → duplicate
-  * `size` – same byte size → duplicate
-  * `hash` – **size + MD5 of head/tail 1 MiB** (default; fast & robust)
-
-### NFO controls
-
-* `--emit-nfo` – `movie`, `tv`, `all` (default), or `off`.
-* `--nfo-layout` – `same-stem` (write `<video>.nfo`) or `kodi` (for movies, write `movie.nfo` inside the movie folder).
-* `--overwrite-nfo` – overwrite an existing NFO (otherwise we skip rewriting it).
-
-### Poster sieve (optional; default off)
-
-* `--carry-posters` – `off` (default), `keep`, `skip`, `quarantine`
-
-  * `keep`: copy posters only if they **pass** checks
-  * `quarantine`: suspected posters get moved/copied into `<movie>/_quarantine/`
-* `--poster-min-wh` – minimum poster dimensions (default `600x900`).
-* `--poster-aspect` – accepted width/height ratio range (default `0.66-0.75`).
-* `--poster-keywords` – blacklist tokens, e.g. `yify,yts,rarbg,ettv`.
-
-> Poster handling uses only local files (`poster.jpg`, `folder.jpg`, `cover.jpg`) near the source. No downloads.
+* `--dupe-mode` supports `hash` (fast fingerprint), `size`, or `name`.
+* `--emit-nfo` writes NFO files (merge-first).
+* `--carry-posters` enables optional local poster filtering.
 
 ---
 
-## Examples
+## 🧠 Naming logic
 
-**Dry run, organise in place:**
-
-```bash
-python -m media_organiser ~/Downloads --dry-run
-```
-
-**Copy to a library, prefer hash-based duplicate skipping:**
-
-```bash
-python -m media_organiser ~/torrents /srv/media --mode copy --dupe-mode hash
-```
-
-**Move into NAS and write NFOs for both movies & TV (same-stem):**
-
-```bash
-python -m media_organiser /mnt/incoming /mnt/media --emit-nfo all
-```
-
-**Write only movie NFOs in Kodi layout (movie.nfo in each film folder):**
-
-```bash
-python -m media_organiser /mnt/incoming /mnt/media --emit-nfo movie --nfo-layout kodi
-```
-
-**Enable poster sieve and quarantine suspects:**
-
-```bash
-python -m media_organiser /mnt/incoming /mnt/media \
-  --carry-posters quarantine \
-  --poster-min-wh 600x900 \
-  --poster-aspect 0.66-0.75 \
-  --poster-keywords "yify,yts,rarbg,ettv"
-```
+* Detects `SxxExx`, `SxxExx-Exx`, `2xNN`, `Sxx NN`
+* Cleans scene noise (`BluRay`, `x265`, `[eztv]`...)
+* Infers quality (`4k` → `2160p`, `8k` → `4320p`)
+* Writes NFOs without online metadata lookups
 
 ---
 
-## What it does (in detail)
-
-### 1) TV detection & naming
-
-Understands:
-
-* `S02E01`, `S02E01E02`, `S02E01-02`
-* `2x01`, `2x01-02`
-* `S02 01` and `S2E1`
-
-Outputs:
-
-```
-/tv/<Series>/season-02/<Series> - S02E01 (1080p).mkv
-/tv/<Series>/season-04/<Series> - S04E01-E02 (2160p).mkv
-```
-
-### 2) Movie naming
-
-Cleans scene noise (`BluRay`, `x265`, `[eztv]`, `1080p`, etc.), removes leading indices (`01 `), and prefers:
-
-1. Nearby **.nfo** `<title>` (for naming only; we don’t write back to media).
-2. Parent/grandparent folder of the form `Title (Year)` / `Title [Year]`.
-3. Filename up to the first standalone year token.
-
-### 3) Quality detection
-
-* `4k/uhd → 2160p`, `8k → 4320p`, otherwise uses the found token (`1080p`, `720p`, …)
-* If none found → `Other`.
-
-### 4) Subtitles (sidecars)
-
-Finds sidecars that start with the video’s stem plus a suffix (e.g., `.en`, `.eng.forced`, `-hi`, `.pt-BR`) and carries them over:
-
-```
-My.Movie.2019.en.forced.srt → /movies/My Movie/My Movie (1080p).en.forced.srt
-```
-
-VobSub pairs (`.idx` + `.sub`) are handled if they share the same base stem.
-
-### 5) Duplicate handling
-
-Within each movie folder / season folder:
-
-* `hash` mode (default) — skip if size + quick MD5 fingerprint matches an existing file.
-* If not a duplicate but the **filename** already exists, we suffix ` (2)`, ` (3)`, etc.
-
-### 6) NFO writing (merge-first)
-
-When `--emit-nfo` is enabled:
-
-* For **TV**: writes `<episodedetails>` next to the episode (or same-stem).
-* For **Movies**: writes `<movie>` either as `<video>.nfo` (same-stem) or `movie.nfo` (Kodi).
-
-**Merge-first semantics:**
-
-1. Read **existing** NFOs (source side and/or destination side).
-2. Use their fields **as defaults**.
-3. Fill only the **missing** pieces with what we can infer:
-
-   * `title`/`showtitle`, `season`, `episode`/`episode_to`, `quality`, `extension`
-   * `size`, `filenameandpath`, `originalfilename`, `sourcepath`
-   * `uniqueid` with `type="localhash"` (fast fingerprint: size + MD5 of head/tail)
-   * merged `subtitles` list (existing entries kept, new entries appended)
-
-No external IDs are fetched; if your existing NFO has them, they remain intact.
-
-### 7) Poster sieve (optional)
-
-If enabled, looks for `poster.jpg`, `folder.jpg`, `cover.jpg` near the source (or its parent).
-Rejects/quarantines *suspects* using:
-
-* filename/metadata keywords (`yify`, `yts`, `rarbg`, …),
-* too-small dimensions,
-* odd aspect ratios (outside your allowed range),
-* near-solid borders on all sides (common with spam composites).
-
----
-
-## Directory layout after running
+## 🧼 Example output
 
 ```
 /movies/
-  <Title>/
-    <Title> (<quality>).<ext>
-    <Title> (<quality>).<lang[.flag]>.srt
-    <Title> (<quality>).nfo   # or movie.nfo if using kodi layout
-    [optional] poster.jpg / _quarantine/
+  Title (2023)/
+    Title (2160p).mkv
+    Title (2160p).nfo
+    Title (2160p).en.srt
 
 /tv/
-  <Series>/
-    season-<NN>/
-      <Series> - S<NN>E<NN>(-E<NN>) (<quality>).<ext>
-      <Series> - S<NN>E<NN>...(<quality>).<lang>.srt
-      <Series> - S<NN>E<NN>...(<quality>).nfo
+  Series Name/
+    season-01/
+      Series Name - S01E01 (1080p).mkv
+      Series Name - S01E01 (1080p).nfo
 ```
 
 ---
 
-## Tips & Troubleshooting
+## 🧭 Roadmap
 
-* **Nothing happens** → try `--dry-run` to see what the tool detects; confirm file extensions are supported.
-* **Episode missed** → ensure filenames follow common patterns (`SxxExx`, `2xNN`, or `Sxx NN`).
-* **Subtitles not copied** → the subtitle’s stem must begin with the source video’s stem.
-* **Duplicates not skipped** → try `--dupe-mode size` or `name` if releases differ slightly but you still want to skip.
-* **Posters flagged** → adjust `--poster-min-wh`, `--poster-aspect`, or `--poster-keywords`, or switch to `quarantine` to review later.
-
----
-
-## FAQ
-
-**Does it fetch internet metadata or write tags into the media files?**
-No. It is strictly **offline** and writes only small **NFO** files.
-
-**Can it also move `.nfo`/posters/chapters as data (not just sieve)?**
-Posters are optional via the sieve; carrying over additional sidecars (e.g., chapters, thumbnails, NFO copies) can be added—open an issue or ask and we’ll wire a `--carry` flag for those.
-
-**Will it overwrite my existing NFOs?**
-Not unless you pass `--overwrite-nfo`. Otherwise, existing NFOs are **read and respected**, and only missing fields are filled.
+* `--carry` for extra sidecars (chapters, thumbs)
+* Quality preference rules
+* CSV/JSON action reporting
+* PyPI packaging & release
 
 ---
 
-## License
+## 📝 License
 
-MIT—do what you like; no warranty.
-
----
-
-## Roadmap / Ideas
-
-* `--carry` for additional sidecars (chapters, thumbs, original .nfo copy).
-* Quality preference rules (e.g., keep highest quality duplicate).
-* CSV/JSON action report for auditing.
-* Packaged release (`pyproject.toml`) and simple unit tests.
+MIT — do what you like except steal credit; no warranty; I hold no responsibility for anything at all.
