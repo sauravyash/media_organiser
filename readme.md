@@ -39,7 +39,7 @@ media_organiser/
 
 ## Requirements
 
-* **Python 3.9+**
+* **Python 3.10+**
 * No mandatory third-party packages.
 * (Optional) **Pillow** for better poster checks (`pip install Pillow`) if you enable the poster sieve.
 
