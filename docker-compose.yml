@@ -1,7 +1,7 @@
 services:
   media-organiser:
-    build: ./media_organiser
-    container_name: media-organiser
+    build: .
+    container_name: media_organiser
     restart: unless-stopped
     environment:
       IMPORT_DIR: /data/import
