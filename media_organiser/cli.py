@@ -2,6 +2,7 @@ import argparse
 import re
 from pathlib import Path
 
+from stabilize import is_file_size_stable
 from .cleanup import prune_junk_then_empty_dirs
 from .constants import VIDEO_EXTS, YEAR_PATTERN
 from .naming import detect_quality, is_tv_episode, movie_name_from_parents, guess_movie_name_from_file, clean_name, \
@@ -57,6 +58,11 @@ def main():
     for path in src_root.rglob("*"):
         if not path.is_file(): continue
         if path.suffix.lower() not in VIDEO_EXTS: continue
+
+        # skip incomplete uploads (e.g., vsftpd client still writing)
+        if not is_file_size_stable(path, interval=1.0):
+            print(f"[skip] file not stable or still growing: {path}")
+            continue
 
         # skip items already in /movies or /tv under dest
         if dest_root in path.parents and (movies_root in path.parents or tv_root in path.parents):
