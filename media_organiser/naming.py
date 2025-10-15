@@ -33,10 +33,8 @@ def clean_name(raw: str, *, strip_leading_index: bool = True, strip_scene_words:
     if strip_scene_words:
         name = SCENE_WORDS.sub("", name)                # scene words
 
-    print(name)
     name = RESOLUTION_PATTERN.sub("", name)             # 1080p, 2160p, etc.
 
-    print(name)
 
     if strip_leading_index:
         name = re.sub(r"^\s*\d{1,3}[\s\.\-\)]*", "", name)  # leading numeric index

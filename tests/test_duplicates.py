@@ -1,7 +1,6 @@
 # tests/test_duplicates.py
 from pathlib import Path
 import os
-import hashlib
 
 import media_organiser.duplicates as dup
 from media_organiser.duplicates import (
@@ -16,12 +15,7 @@ def write(p: Path, data: bytes):
     p.write_bytes(data)
 
 
-def sha256_bytes(b: bytes) -> str:
-    return hashlib.sha256(b).hexdigest()
-
-
 # ---------- normalized_stem_ignore_quality ----------
-
 def test_normalized_stem_strips_resolution_tokens(tmp_path):
     # Common style: "Movie (2160p).mkv" vs candidate "Movie.mkv"
     p1 = tmp_path / "Movie (2160p).mkv"
@@ -133,28 +127,96 @@ def test_hash_mode_skips_when_sizes_differ(tmp_path, monkeypatch):
     assert called["fp"] == 0
 
 
-# def test_is_duplicate_handles_disappearing_file(tmp_path, monkeypatch):
-#     """
-#     Simulate a race: existing file passes is_file() but disappears
-#     before the branch uses .stat() / reading. The function should
-#     swallow FileNotFoundError and continue.
-#     """
-#     dest = tmp_path / "dest"; dest.mkdir()
-#     existing = dest / "ghost.mkv"
-#     write(existing, b"A" * 10)
-#
-#     candidate = tmp_path / "cand.mkv"
-#     write(candidate, b"A" * 10)
-#
-#     # Wrap Path.stat to raise for our 'existing' only after is_file() check.
-#     real_stat = Path.stat
-#
-#     def flaky_stat(self: Path):
-#         if self == existing:
-#             raise FileNotFoundError("went missing")
-#         return real_stat(self)
-#
-#     monkeypatch.setattr(Path, "stat", flaky_stat)
-#     # Should not crash; might still match by hash against others (none), so None
-#     match = is_duplicate_in_dir(candidate, dest, mode="size")
-#     assert match is None
+def test_is_duplicate_skips_non_files_and_non_video_suffix(tmp_path):
+    """
+    Covers: `if not existing.is_file() or existing.suffix.lower() not in VIDEO_EXTS: continue`
+    - A subdirectory (not a file) triggers the first part
+    - A .txt file (non-video suffix) triggers the second part
+    Both should be skipped, yielding no duplicate.
+    """
+    dest = tmp_path / "dest"
+    dest.mkdir()
+
+    # Non-file entry (directory)
+    (dest / "a_dir").mkdir()
+
+    # Non-video file
+    (dest / "notes.txt").write_text("hello")
+
+    # Candidate is a video file that shouldn't match either
+    candidate = tmp_path / "MovieX.mkv"
+    write(candidate, b"A" * 100)
+
+    # NAME mode (but entries are skipped before name check)
+    assert is_duplicate_in_dir(candidate, dest, mode="name") is None
+    # SIZE mode (same — skipped before size check)
+    assert is_duplicate_in_dir(candidate, dest, mode="size") is None
+    # HASH mode (same — skipped before size/hash checks)
+    assert is_duplicate_in_dir(candidate, dest, mode="hash") is None
+
+
+def test_hash_mode_size_mismatch_continue_no_hash(tmp_path, monkeypatch):
+    """
+    Covers: `if existing.stat().st_size != cand_size: continue`
+    Ensure quick_fingerprint is NOT called at all when sizes differ.
+    """
+    dest = tmp_path / "dest"
+    dest.mkdir()
+
+    # Existing video with size 100B
+    existing = dest / "clip.mkv"
+    write(existing, b"A" * 100)
+
+    # Candidate with a different size (101B)
+    candidate = tmp_path / "clip2.mkv"
+    write(candidate, b"A" * 101)
+
+    calls = {"count": 0}
+    real_qf = dup.quick_fingerprint
+
+    def spy_qf(p: Path, sample_bytes=1 << 20):
+        calls["count"] += 1
+        return real_qf(p, sample_bytes)
+
+    # Spy on quick_fingerprint to confirm it isn't used due to size mismatch
+    monkeypatch.setattr(dup, "quick_fingerprint", spy_qf)
+
+    match = is_duplicate_in_dir(candidate, dest, mode="hash")
+    assert match is None
+    assert calls["count"] == 0
+
+def test_is_duplicate_file_not_found_error_continue(tmp_path, monkeypatch):
+    """
+    Cover the `except FileNotFoundError: continue` branch.
+    Ensure is_file() doesn't trigger stat(), then raise at existing.stat().
+    """
+    dest = tmp_path / "dest"
+    dest.mkdir()
+
+    ghost = dest / "ghost.mkv"
+    ghost.write_bytes(b"AAAA")
+
+    candidate = tmp_path / "MovieX.mkv"
+    candidate.write_bytes(b"AAAA")
+
+    # Make is_file() return True for ghost WITHOUT calling stat()
+    real_is_file = Path.is_file
+    def fake_is_file(self: Path):
+        if self == ghost:
+            return True
+        return real_is_file(self)
+    monkeypatch.setattr(Path, "is_file", fake_is_file)
+
+    # Now make stat() raise ONLY for ghost (inside the try in is_duplicate_in_dir)
+    real_stat = Path.stat
+    def flaky_stat(self: Path, **kwargs):
+        if self == ghost:
+            raise FileNotFoundError("gone")
+        return real_stat(self, **kwargs)
+    monkeypatch.setattr(Path, "stat", flaky_stat)
+
+    # Use a mode that calls existing.stat() (size/hash); should swallow the error.
+    result = is_duplicate_in_dir(candidate, dest, mode="size")
+    assert result is None
+
+
