@@ -200,7 +200,6 @@ Key flags:
 * Quality preference rules
 * CSV/JSON action reporting
 * PyPI packaging & release
-
 ---
 
 ## 📝 License
