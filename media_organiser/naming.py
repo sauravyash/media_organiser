@@ -2,9 +2,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 import re
 from .constants import (
-    SEASON_PATTERNS,
     YEAR_PATTERN,
-    RESOLUTION_PATTERN,
     MOVIE_DIR_RE,
     SCENE_WORDS,
     GENERIC_DIRS
@@ -24,13 +22,22 @@ def detect_quality(filename: str) -> str:
 def titlecase_soft(s: str) -> str:
     return " ".join(w if (w.isupper() and len(w) <= 4) else w.capitalize() for w in s.split())
 
+RESOLUTION_PATTERN = re.compile(
+    r"(?i)[\[\(\{]?\s*(480p|576p|720p|1080p|2160p|4320p|4k|8k|uhd|hdr)\s*[\]\)\}]?"
+)
+
 def clean_name(raw: str, *, strip_leading_index: bool = True, strip_scene_words: bool = True) -> str:
     name = Path(raw).stem
-    name = re.sub(r"\[.*?\]", " ", name)              # [tags]
-    name = re.sub(r"[\._]+", " ", name)               # dots/underscores -> space
+    name = re.sub(r"\[.*?\]", " ", name)    # [tags]
+    name = re.sub(r"[\._]+", " ", name)     # dots/underscores -> space
     if strip_scene_words:
-        name = SCENE_WORDS.sub("", name)              # scene words
-    name = RESOLUTION_PATTERN.sub("", name)           # 1080p, 2160p, etc.
+        name = SCENE_WORDS.sub("", name)                # scene words
+
+    print(name)
+    name = RESOLUTION_PATTERN.sub("", name)             # 1080p, 2160p, etc.
+
+    print(name)
+
     if strip_leading_index:
         name = re.sub(r"^\s*\d{1,3}[\s\.\-\)]*", "", name)  # leading numeric index
     name = re.sub(r"\s{2,}", " ", name).strip(" .-_")

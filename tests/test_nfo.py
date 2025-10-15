@@ -1,4 +1,7 @@
+# tests/test_nfo_merge.py
+from pathlib import Path
 import xml.etree.ElementTree as ET
+import media_organiser.nfo as nfo
 
 from media_organiser.nfo import (
     write_movie_nfo, write_episode_nfo, nfo_path_for
@@ -59,3 +62,36 @@ def test_write_episode_nfo_basic(tmp_path):
 
     xml = out.read_text()
     assert "<episodedetails>" in xml and "<showtitle>Series</showtitle>" in xml
+
+
+MOVIE_EXISTING = """<movie><title>Existing Title</title><year>1999</year></movie>"""
+EP_EXISTING = """<episodedetails><title>Ep Title</title><season>1</season><episode>2</episode></episodedetails>"""
+
+# def parse(path: Path):
+#     return ET.fromstring(path.read_text(encoding="utf-8"))
+
+def test_movie_nfo_skip_when_exists_kodi_layout(tmp_path):
+    # Arrange: have a movie file and an existing kodi-style movie.nfo
+    movie_dir = tmp_path / "Movies" / "Title (2020)"
+    movie_dir.mkdir(parents=True)
+    dst_video = movie_dir / "Title (2020).mkv"
+    dst_video.write_bytes(b"x")
+
+    existing = movie_dir / "movie.nfo"  # kodi layout -> movie.nfo next to video
+    existing_xml = b'<?xml version="1.0" encoding="utf-8"?><movie><title>Existing Title</title><year>1999</year></movie>'
+    existing.write_bytes(existing_xml)
+
+    # Act: attempt to write with overwrite=False; should SKIP
+    computed = {"title": "New Title", "year": "2020"}
+    nfo.write_movie_nfo(dst_video, computed, base_meta=None, overwrite=False, layout="kodi")
+
+    # Assert: file unchanged
+    assert existing.read_bytes() == existing_xml
+
+
+def test_nfo_path_for_movie_kodi_and_same_stem(tmp_path):
+    f = tmp_path / "X.mkv"
+    f.write_bytes(b".")
+    assert nfo.nfo_path_for(f, "movie", "kodi").name == "movie.nfo"
+    assert nfo.nfo_path_for(f, "movie", "same-stem").name == "X.nfo"
+
