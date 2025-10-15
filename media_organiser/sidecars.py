@@ -1,14 +1,13 @@
 from pathlib import Path
 from typing import Iterable, List, Dict
 import re
-from media_organiser.constants import SUB_EXTS, SIDE_SUFFIX_RE
+from media_organiser.constants import SUB_EXTS
 
 
 _LANG_RE = re.compile(r"(?i)[\.\- _]([a-z]{2,3}(?:-[A-Z]{2})?)(?=($|\.[^.]+))")
 
 def find_related_sidecars(src: Path) -> Iterable[Path]:
     base = re.escape(src.stem)
-    # pat = re.compile(SIDE_SUFFIX_RE.pattern.format(base=base))
     pat = re.compile(rf"(?i)^({base})(?P<suffix>(?:[ ._\-](?!S\d{{1,2}}E)\w[\w.\-]*)?)$")
     for p in src.parent.iterdir():
         if p.is_file() and p.suffix.lower() in SUB_EXTS:
