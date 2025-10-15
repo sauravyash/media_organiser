@@ -2,7 +2,7 @@ import argparse
 import re
 from pathlib import Path
 
-from stabilize import is_file_size_stable
+from .stabilize import is_file_size_stable
 from .cleanup import prune_junk_then_empty_dirs
 from .constants import VIDEO_EXTS, YEAR_PATTERN
 from .naming import detect_quality, is_tv_episode, _clean_title, guess_movie_name
@@ -14,7 +14,6 @@ from .duplicates import is_duplicate_in_dir, quick_fingerprint
 from .io_ops import do_move_or_copy
 from .sidecars import copy_move_sidecars
 from .posters import carry_poster_with_sieve, parse_range_pair  # optional; default off
-
 
 
 def main():
