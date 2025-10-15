@@ -15,7 +15,13 @@ SEASON_PATTERNS = [
 
 
 YEAR_PATTERN       = re.compile(r"(?:(?:19|20)\d{2})")
-RESOLUTION_PATTERN = re.compile(r"(?i)\b(480p|576p|720p|1080p|2160p|4320p|4k|8k|uhd|hdr)\b")
+
+RESOLUTION_PATTERN = re.compile(r"(?i)\b(480p|576p|720p|1080p|2160p|4320p|4k|8k|uhd|hdr|hd|fhd)\b")
+
+RESOLUTION_WITH_BRACKETS_PATTERN = re.compile(
+    r"(?i)[\[\(\{]?\s*(480p|576p|720p|1080p|2160p|4320p|4k|8k|uhd|hdr|hd|fhd)\s*[\]\)\}]?"
+)
+
 MOVIE_DIR_RE       = re.compile(r"(?i)^(?P<title>.+?)\s*[\(\[\{]?(?P<year>(?:19|20)\d{2})[\)\]\}]?$")
 GENERIC_DIRS       = {"subs", "subtitles", "other", "cd 1", "cd 2", "sample"}
 SCENE_WORDS        = re.compile(r"(?i)\b(BluRay|WEB[- ]?DL|WEBRip|WEBDL|BRRip|HDRip|DVDRip|x264|x265|h\.?264|h\.?265|HEVC|AV1|AAC|DTS|DDP?5\.1|10bit|8bit|Atmos|Remux|Proper|Repack|Extended|IMAX|HDTV|XviD|ION10|LOL|KILLERS|SVA|mSD|STRiFE|GalaxyTV)\b")

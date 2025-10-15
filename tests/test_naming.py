@@ -2,7 +2,8 @@ import sys
 from pathlib import Path
 
 from media_organiser.cli import main
-from media_organiser.naming import is_tv_episode, detect_quality, clean_name
+from media_organiser.naming import is_tv_episode, detect_quality, clean_name, guess_movie_name_from_file
+
 
 def test_tv_patterns_basic():
     ok, info = is_tv_episode("Better.Call.Saul.S02E01.1080p.mkv")
@@ -57,8 +58,8 @@ def test_cli_uses_parent_dir_title_clean_titlecase(tmp_path):
 
     # Expect title cleaned + soft-titlecased: "Some Movie"
     out_dir = dst / "movies" / "Some Movie"
-    out_file = out_dir / "Some Movie (Other).mkv"
-    out_nfo = out_dir / "Some Movie (Other).nfo"
+    out_file = out_dir / "Some Movie (2019) [Other].mkv"
+    out_nfo = out_dir / "Some Movie (2019) [Other].nfo"
 
     assert out_dir.exists()
     assert out_file.exists()
@@ -84,9 +85,28 @@ def test_cli_uses_parent_dir_title_with_dots(tmp_path):
     _run_cli(src, dst, ["--mode", "copy", "--emit-nfo", "movie", "--dupe-mode", "off"])
 
     out_dir = dst / "movies" / "Some Movie"
-    out_file = out_dir / "Some Movie (Other).mkv"
-    out_nfo = out_dir / "Some Movie (Other).nfo"
+    out_file = out_dir / "Some Movie (2019) [Other].mkv"
+    out_nfo = out_dir / "Some Movie (2019) [Other].nfo"
 
     assert out_dir.exists()
     assert out_file.exists()
     assert out_nfo.exists()
+
+# American-psycho-hd-720p.mp4
+def test_movie_file_only(tmp_path):
+    src = tmp_path / "in"
+    dst = tmp_path / "out"
+    src.mkdir()
+
+    # Minimal filename without quality => quality becomes 'Other'
+    f = src / "American-psycho-hd-720p.mp4"
+    f.write_bytes(b"x" * 1234)
+
+    _run_cli(src, dst, ["--mode", "move", "--dupe-mode", "off"])
+
+    # Expect title cleaned + soft-titlecased: "Some Movie"
+    out_dir = dst / "movies" / "American Psycho"
+    out_file = out_dir / "American Psycho [720p].mp4"
+
+    assert out_dir.exists()
+    assert out_file.exists()
