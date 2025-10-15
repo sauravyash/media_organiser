@@ -1,6 +1,5 @@
 from pathlib import Path
 import sys
-import media_organiser.cli as cli
 from media_organiser.cli import main as cli_main
 
 def _run_cli(src: Path, dst: Path, extra_args: list[str]):
@@ -32,7 +31,7 @@ def test_prune_removes_yts_poster_and_folder(tmp_path):
     # after move, the source subfolder should be pruned away
     assert not movie_dir.exists(), "source folder should be removed after junk-aware pruning"
     # file should now be in library
-    out = dst / "movies" / "Some Movie" / "Some Movie (1080p).mkv"
+    out = dst / "movies" / "Some Movie" / "Some Movie (2019) [1080p].mkv"
 
     assert out.exists()
 

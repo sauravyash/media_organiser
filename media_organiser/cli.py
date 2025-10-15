@@ -5,10 +5,9 @@ from pathlib import Path
 from stabilize import is_file_size_stable
 from .cleanup import prune_junk_then_empty_dirs
 from .constants import VIDEO_EXTS, YEAR_PATTERN
-from .naming import detect_quality, is_tv_episode, movie_name_from_parents, guess_movie_name_from_file, clean_name, \
-    _clean_title
+from .naming import detect_quality, is_tv_episode, _clean_title, guess_movie_name
 from .nfo import (
-    find_nfo, parse_local_nfo_for_title, read_nfo_to_meta, nfo_path_for,
+    find_nfo,  read_nfo_to_meta, nfo_path_for,
     write_movie_nfo, write_episode_nfo, merge_first, merge_subtitles
 )
 from .duplicates import is_duplicate_in_dir, quick_fingerprint
@@ -16,14 +15,7 @@ from .io_ops import do_move_or_copy
 from .sidecars import copy_move_sidecars
 from .posters import carry_poster_with_sieve, parse_range_pair  # optional; default off
 
-def guess_movie_name(path: Path) -> tuple[str, Path|None]:
-    used_nfo = find_nfo(path)
-    if used_nfo:
-        t = parse_local_nfo_for_title(used_nfo)
-        if t: return t, used_nfo
-    by_parent = movie_name_from_parents(path)
-    if by_parent: return by_parent, used_nfo
-    return guess_movie_name_from_file(path.stem), used_nfo
+
 
 def main():
     ap = argparse.ArgumentParser(description="Organise media into /movies and /tv, copy subs, and emit local NFOs (offline).")
@@ -124,15 +116,16 @@ def main():
                 write_episode_nfo(out_file, computed, base_meta, overwrite=args.overwrite_nfo, layout=args.nfo_layout)
 
         else:
-            movie_name, used_nfo = guess_movie_name(path)
+            movie_name, used_nfo = guess_movie_name(path, src_root)
             # rough year for NFO only
             year_guess = None
             m = YEAR_PATTERN.search(path.name) or YEAR_PATTERN.search(path.parent.name)
             if m: year_guess = m.group(0)
-
-            out_dir = movies_root / movie_name
+            folder_name = f"{movie_name}"
+            full_name = f"{folder_name} {f'({year_guess}) ' if year_guess else ''}[{quality}]"
+            out_dir = movies_root / folder_name
             out_dir.mkdir(parents=True, exist_ok=True)
-            out_file = out_dir / f"{movie_name} ({quality}){path.suffix.lower()}"
+            out_file = out_dir / f"{full_name}{path.suffix.lower()}"
 
             if args.dupe_mode != "off":
                 dup = is_duplicate_in_dir(path, out_dir, args.dupe_mode)
