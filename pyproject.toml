@@ -7,7 +7,14 @@ name = "media-organiser"
 version = "0.1.0"
 description = "Offline media organiser with NFO merge-first."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
+dependencies = [
+    "colorama",
+    "coverage",
+    "pillow",
+    "pytest",
+    "pytest-cov"
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
