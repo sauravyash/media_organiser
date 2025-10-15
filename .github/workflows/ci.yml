@@ -62,9 +62,11 @@ jobs:
 
       - name: Commit coverage assets (if changed)
         run: |
+          DATE=$(date +%s)
+          sed -i "s|v=[0-9]*|v=$DATE|" README.md
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add coverage/badge.svg coverage/coverage_history.json || true
+          git add readme.md coverage/badge.svg coverage/coverage_history.json || true
           if ! git diff --cached --quiet; then
             git commit -m "ci: update coverage badge/graph [skip ci]"
             git push
