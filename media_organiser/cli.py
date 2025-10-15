@@ -2,7 +2,7 @@ import argparse
 import re
 from pathlib import Path
 
-from cleanup import prune_junk_then_empty_dirs
+from .cleanup import prune_junk_then_empty_dirs
 from .constants import VIDEO_EXTS, YEAR_PATTERN
 from .naming import detect_quality, is_tv_episode, movie_name_from_parents, guess_movie_name_from_file, clean_name, \
     _clean_title
