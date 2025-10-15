@@ -13,5 +13,5 @@ inotifywait -m -r -e close_write,create,move,delete "$IMPORT_DIR" | while read -
   # Debounce a little to let large copies finish
   sleep 20
   echo "[watch] change detected — organising..."
-  python /app/main.py "$IMPORT_DIR" "$LIB_DIR" --mode move --dupe-mode name --emit-nfo all --carry-poster keep
+  python /app/main.py "$IMPORT_DIR" "$LIB_DIR" --mode copy --dupe-mode name --emit-nfo all
 done

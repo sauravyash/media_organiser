@@ -99,10 +99,10 @@ def test_movie_file_only(tmp_path):
     src.mkdir()
 
     # Minimal filename without quality => quality becomes 'Other'
-    f = src / "American-psycho-hd-720p.mp4"
+    f = src / "american-psycho-hd-720p.mp4"
     f.write_bytes(b"x" * 1234)
 
-    _run_cli(src, dst, ["--mode", "move", "--dupe-mode", "off"])
+    _run_cli(src, dst, ["--mode", "copy", "--dupe-mode", "name", "--emit-nfo", "all"])
 
     # Expect title cleaned + soft-titlecased: "Some Movie"
     out_dir = dst / "movies" / "American Psycho"
