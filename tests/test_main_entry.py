@@ -17,3 +17,8 @@ def test_main_invokes_cli(monkeypatch):
         import media_organiser.cli as cli
         cli.main()
     assert called["ok"]
+
+def test_entrypoint_run(monkeypatch):
+    import sys, runpy
+    monkeypatch.setattr(sys, "argv", ["prog", "/tmp/src", "/tmp/dst", "--dry-run"])
+    runpy.run_module("media_organiser.main", run_name="__main__")
