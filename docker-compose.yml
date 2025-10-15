@@ -1,0 +1,8 @@
+services:
+  media-organiser:
+    build: ./media_organiser
+    container_name: media-organiser
+    restart: unless-stopped
+    volumes:
+      - /data/import:/data/import
+      - /data/content:/data/library
