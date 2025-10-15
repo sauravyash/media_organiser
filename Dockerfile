@@ -1,6 +1,5 @@
-LABEL authors="yaa.sh"
-
 FROM python:3.11-slim
+LABEL authors="yaa.sh"
 
 # Install inotifywait
 RUN apt-get update && apt-get install -y --no-install-recommends inotify-tools \
