@@ -2,6 +2,15 @@
 
 A fast, offline Python tool that **sorts** your media library, **copies/moves** sidecar subtitles, and **writes/merges NFOs**—no internet calls and no tag embedding in the media files.
 
+## CI Status
+
+| Python version | Status                                                                                                                                                                                                |
+|---------------:|:------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 3.10           | [![3.10](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.10)](https://github.com/yashagasti/media-organiser/actions/workflows/ci.yml) |
+| 3.11           | [![3.11](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.11)](https://github.com/yashagasti/media-organiser/actions/workflows/ci.yml)   |
+| 3.12           | [![3.12](https://github.com/sauravyash/media_organiser/actions/workflows/ci.yml/badge.svg?branch=master&label=Python%203.12)](https://github.com/yashagasti/media-organiser/actions/workflows/ci.yml)   |
+
+
 ```
 /movies/<Title>/<Title> (<quality>).<ext>
 /tv/<Series>/season-<NN>/<Series> - S<NN>E<NN>(-E<NN>) (<quality>).<ext>
