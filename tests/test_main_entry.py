@@ -21,4 +21,7 @@ def test_main_invokes_cli(monkeypatch):
 def test_entrypoint_run(monkeypatch):
     import sys, runpy
     monkeypatch.setattr(sys, "argv", ["prog", "/tmp/src", "/tmp/dst", "--dry-run"])
-    runpy.run_module("media_organiser.main", run_name="__main__")
+    mod_name = "media_organiser.main"
+    if mod_name in sys.modules:
+        del sys.modules[mod_name]
+    runpy.run_module(mod_name, run_name="__main__")

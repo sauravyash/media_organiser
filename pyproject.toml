@@ -1,19 +1,20 @@
-[build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[project]
+[tool.poetry]
 name = "media-organiser"
 version = "0.1.0"
 description = "Offline media organiser with NFO merge-first."
 readme = "README.md"
-requires-python = ">=3.10"
-dependencies = [
-    "pillow",
-    "pytest",
-    "pytest-cov"
-]
+authors = []
+packages = [{include = "media_organiser"}]
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["media_organiser"]
+[tool.poetry.dependencies]
+python = "^3.10"
+pillow = "*"
+flask = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+pytest-cov = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

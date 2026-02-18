@@ -1,6 +1,22 @@
 .idea/
 .venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Coverage
 /coverage.xml
 /.coverage
 /htmlcov/
+
 docker-compose.yml

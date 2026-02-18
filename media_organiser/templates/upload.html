@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Media Organiser — Upload</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f1216;
+      --surface: #1a1e26;
+      --border: #2a303c;
+      --text: #e6edf3;
+      --muted: #7d8590;
+      --accent: #3fb950;
+      --accent-dim: #238636;
+      --danger: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Outfit", system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    h1 {
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 600;
+      font-size: 1.25rem;
+      letter-spacing: 0.02em;
+      color: var(--muted);
+      margin-bottom: 0.25rem;
+    }
+    .sub {
+      font-size: 0.875rem;
+      color: var(--muted);
+      margin-bottom: 2rem;
+    }
+    .zone {
+      width: 100%;
+      max-width: 32rem;
+      min-height: 14rem;
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      padding: 2rem;
+      transition: border-color 0.2s, background 0.2s;
+      cursor: pointer;
+    }
+    .zone:hover, .zone.dragover {
+      border-color: var(--accent);
+      background: rgba(63, 185, 80, 0.06);
+    }
+    .zone input[type="file"] {
+      display: none;
+    }
+    .zone .icon {
+      font-size: 2.5rem;
+      opacity: 0.7;
+    }
+    .zone .prompt {
+      font-size: 0.9375rem;
+      color: var(--muted);
+      text-align: center;
+    }
+    .zone .prompt strong { color: var(--text); }
+    .exts {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 0.5rem;
+    }
+    .exts span { color: var(--accent); }
+    .btn {
+      margin-top: 1.5rem;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      padding: 0.625rem 1.25rem;
+      border: none;
+      border-radius: 8px;
+      background: var(--accent);
+      color: var(--bg);
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: var(--accent-dim); }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .feedback {
+      margin-top: 1.5rem;
+      max-width: 32rem;
+      width: 100%;
+      font-size: 0.875rem;
+    }
+    .feedback.success { color: var(--accent); }
+    .feedback.error { color: var(--danger); }
+    .feedback ul { margin: 0.25rem 0 0 1rem; padding: 0; }
+  </style>
+</head>
+<body>
+  <h1>media_organiser</h1>
+  <p class="sub">Upload media to import. Files are organised into /movies and /tv automatically.</p>
+
+  <form id="form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+    <div class="zone" id="zone" role="button" tabindex="0">
+      <input type="file" name="files" id="files" multiple accept="{{ allowed_extensions | join(',') }}">
+      <span class="icon" aria-hidden="true">📁</span>
+      <span class="prompt"><strong>Drop files here</strong> or click to choose</span>
+      <span class="exts">Allowed: <span>{{ allowed_extensions | join(" ") }}</span></span>
+    </div>
+    <button type="submit" class="btn" id="submitBtn" disabled>Upload</button>
+  </form>
+
+  <div class="feedback" id="feedback" aria-live="polite"></div>
+
+  <script>
+    const zone = document.getElementById("zone");
+    const input = document.getElementById("files");
+    const submitBtn = document.getElementById("submitBtn");
+    const feedback = document.getElementById("feedback");
+    const form = document.getElementById("form");
+
+    function updateSubmit() {
+      submitBtn.disabled = !input.files.length;
+    }
+
+    zone.addEventListener("click", () => input.click());
+    zone.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
+    input.addEventListener("change", updateSubmit);
+
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragover"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.classList.remove("dragover");
+      input.files = e.dataTransfer.files;
+      updateSubmit();
+    });
+
+    form.addEventListener("submit", async (e) => {
+      if (!input.files.length) { e.preventDefault(); return; }
+      e.preventDefault();
+      submitBtn.disabled = true;
+      feedback.textContent = "";
+      feedback.className = "feedback";
+
+      const fd = new FormData();
+      for (const f of input.files) fd.append("files", f);
+
+      try {
+        const r = await fetch("{{ url_for('upload') }}", { method: "POST", body: fd });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok) {
+          if (data.saved && data.saved.length) {
+            feedback.className = "feedback success";
+            feedback.innerHTML = "Uploaded: <ul><li>" + data.saved.join("</li><li>") + "</li></ul>";
+          }
+          if (data.rejected && data.rejected.length) {
+            feedback.className = "feedback error";
+            feedback.innerHTML = (feedback.innerHTML || "") + "Rejected (wrong type): <ul><li>" + data.rejected.join("</li><li>") + "</li></ul>";
+          }
+          if (!data.saved?.length && !data.rejected?.length) feedback.textContent = "No files uploaded.";
+          input.value = "";
+          updateSubmit();
+        } else {
+          feedback.className = "feedback error";
+          feedback.textContent = data.error || "Upload failed.";
+        }
+      } catch (err) {
+        feedback.className = "feedback error";
+        feedback.textContent = "Upload failed: " + err.message;
+      }
+      submitBtn.disabled = false;
+    });
+  </script>
+</body>
+</html>

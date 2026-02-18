@@ -9,5 +9,7 @@ WORKDIR /app
 COPY . /app
 RUN chmod +x /app/entrypoint.sh
 
-# No Python deps required
+RUN pip install --no-cache-dir -e .
+
+EXPOSE 5000
 ENTRYPOINT ["/app/entrypoint.sh"]
