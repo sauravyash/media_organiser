@@ -19,4 +19,7 @@ build/
 /.coverage
 /htmlcov/
 
-docker-compose.yml
+# Local env
+.env
+.env.local
+.env.*.local
