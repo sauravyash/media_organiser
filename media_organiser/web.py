@@ -50,10 +50,25 @@ def upload():
     paths = request.form.getlist("paths")
     saved = []
     rejected = []
+    
+    # Pair files with their paths, filtering out empty files
+    file_path_pairs = []
     for i, f in enumerate(files):
         if not f or not f.filename:
             continue
-        rel_path = paths[i] if i < len(paths) else f.filename
+        # Get the relative path, preferring the paths array if available
+        if i < len(paths) and paths[i]:
+            rel_path = paths[i]
+        else:
+            rel_path = f.filename
+        file_path_pairs.append((f, rel_path))
+    
+    for f, rel_path in file_path_pairs:
+        # Skip if we don't have a valid path
+        if not rel_path:
+            rejected.append(f.filename or "unknown")
+            continue
+            
         dest = _safe_relative_path(import_dir, rel_path)
         if dest is None:
             rejected.append(rel_path)

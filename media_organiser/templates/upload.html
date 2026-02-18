@@ -140,7 +140,7 @@
       <input type="file" name="files" id="files" multiple>
       <input type="file" name="folder" id="folder" webkitdirectory style="display:none">
       <span class="icon" aria-hidden="true">📁</span>
-      <span class="prompt"><strong>Drop files here</strong> or <button type="button" class="linkBtn" id="pickFiles">choose files</button> / <button type="button" class="linkBtn" id="pickFolder">choose folder</button></span>
+      <span class="prompt"><strong>Drop files here</strong> or <button type="button" class="linkBtn" id="pickFolder">choose folder</button> / <button type="button" class="linkBtn" id="pickFiles">choose files</button></span>
       <span class="exts">All file types • Folder upload preserves structure (NFO, subtitles, images)</span>
     </div>
     <button type="submit" class="btn" id="submitBtn" disabled>Upload</button>
@@ -164,8 +164,20 @@
       submitBtn.disabled = !hasFiles;
     }
 
-    zone.addEventListener("click", (e) => { if (!e.target.closest(".linkBtn")) filesInput.click(); });
-    zone.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); filesInput.click(); } });
+    // When clicking the zone, show a simple prompt to choose files or folder
+    zone.addEventListener("click", (e) => { 
+      if (!e.target.closest(".linkBtn")) {
+        // Show a simple choice: prefer folder selection for better UX
+        // On most systems, users can cancel and choose files if needed
+        folderInput.click();
+      }
+    });
+    zone.addEventListener("keydown", (e) => { 
+      if (e.key === "Enter" || e.key === " ") { 
+        e.preventDefault(); 
+        folderInput.click(); 
+      } 
+    });
     filesInput.addEventListener("change", updateSubmit);
     folderInput.addEventListener("change", updateSubmit);
 
@@ -191,8 +203,12 @@
       const fd = new FormData();
       for (let i = 0; i < fileList.length; i++) {
         const f = fileList[i];
+        // Skip files without names (shouldn't happen, but be safe)
+        if (!f.name) continue;
         fd.append("files", f);
-        fd.append("paths", f.webkitRelativePath || f.name);
+        // For folder uploads, use webkitRelativePath if available, otherwise fall back to name
+        const path = useFolder && f.webkitRelativePath ? f.webkitRelativePath : f.name;
+        fd.append("paths", path);
       }
 
       try {
