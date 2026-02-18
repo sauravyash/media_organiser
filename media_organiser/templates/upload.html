@@ -743,8 +743,6 @@
       feedback.textContent = "";
       feedback.className = "feedback";
 
-      const fd = new FormData();
-      
       // Create a map of paths to files using stored FileList
       const fileMap = new Map();
       const fileListToUse = folderFileList || folderInput.files;
@@ -764,107 +762,138 @@
         totalSize += file.size;
       });
 
-      // Only add selected files
-      selectedFileArray.forEach(({ file, path }) => {
-        fd.append("files", file);
-        fd.append("paths", path);
-      });
-
       // Update progress details
       progressDetails.textContent = `Uploading ${selectedFileArray.length} file${selectedFileArray.length !== 1 ? 's' : ''} (${formatSize(totalSize)})...`;
 
-      try {
-        // Use XMLHttpRequest for progress tracking
-        const xhr = new XMLHttpRequest();
-        currentUploadXHR = xhr; // Store for cancellation
+      // Track upload progress
+      let uploadedBytes = 0;
+      const allSaved = [];
+      const allRejected = [];
+      let uploadCancelled = false;
+
+      // Upload files sequentially, one at a time
+      for (let i = 0; i < selectedFileArray.length; i++) {
+        if (uploadCancelled) break;
         
-        xhr.upload.addEventListener("progress", (e) => {
-          if (e.lengthComputable) {
-            const percentComplete = Math.round((e.loaded / e.total) * 100);
-            progressBarFill.style.width = percentComplete + "%";
-            progressStatus.textContent = percentComplete + "%";
+        const { file, path } = selectedFileArray[i];
+        const currentFileIndex = i + 1;
+        
+        try {
+          await new Promise((resolve, reject) => {
+            const fd = new FormData();
+            fd.append("files", file);
+            fd.append("paths", path);
+
+            const xhr = new XMLHttpRequest();
+            currentUploadXHR = xhr; // Store for cancellation
             
-            const uploadedSize = formatSize(e.loaded);
-            const totalSizeStr = formatSize(e.total);
-            progressDetails.textContent = `Uploading ${selectedFileArray.length} file${selectedFileArray.length !== 1 ? 's' : ''}... ${uploadedSize} / ${totalSizeStr}`;
-          }
-        });
+            xhr.upload.addEventListener("progress", (e) => {
+              if (e.lengthComputable && !uploadCancelled) {
+                // Calculate overall progress: bytes uploaded so far + current file progress
+                const currentFileProgress = e.loaded;
+                const totalUploaded = uploadedBytes + currentFileProgress;
+                const percentComplete = Math.round((totalUploaded / totalSize) * 100);
+                
+                progressBarFill.style.width = percentComplete + "%";
+                progressStatus.textContent = percentComplete + "%";
+                
+                const uploadedSize = formatSize(totalUploaded);
+                const totalSizeStr = formatSize(totalSize);
+                const fileName = path.split('/').pop(); // Get just the filename
+                progressDetails.textContent = `[${currentFileIndex}/${selectedFileArray.length}] Uploading ${fileName}... ${uploadedSize} / ${totalSizeStr}`;
+              }
+            });
 
-        xhr.addEventListener("load", () => {
-          currentUploadXHR = null;
-          if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-              const data = JSON.parse(xhr.responseText);
-              uploadProgress.classList.remove("active");
-              hideFolderBrowser();
-              
-              if (data.saved && data.saved.length) {
-                feedback.className = "feedback success";
-                feedback.innerHTML = "Uploaded: <ul><li>" + data.saved.join("</li><li>") + "</li></ul>";
-              }
-              if (data.rejected && data.rejected.length) {
-                feedback.className = "feedback error";
-                feedback.innerHTML = (feedback.innerHTML || "") + "Rejected: <ul><li>" + data.rejected.join("</li><li>") + "</li></ul>";
-              }
-              if (!data.saved?.length && !data.rejected?.length) feedback.textContent = "No files uploaded.";
-              filesInput.value = "";
-              folderInput.value = "";
-              updateSubmit();
-            } catch (err) {
-              uploadProgress.classList.remove("active");
-              feedback.className = "feedback error";
-              feedback.textContent = "Upload completed but response parsing failed.";
-            }
-          } else {
-            uploadProgress.classList.remove("active");
-            feedback.className = "feedback error";
-            try {
-              const data = JSON.parse(xhr.responseText);
-              if (xhr.status === 413) {
-                feedback.textContent = data.error || "File too large. Please try uploading smaller files or increase the server's upload limit.";
+            xhr.addEventListener("load", () => {
+              currentUploadXHR = null;
+              if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                  const data = JSON.parse(xhr.responseText);
+                  uploadedBytes += file.size;
+                  
+                  if (data.saved && data.saved.length) {
+                    allSaved.push(...data.saved);
+                  }
+                  if (data.rejected && data.rejected.length) {
+                    allRejected.push(...data.rejected);
+                  }
+                  
+                  resolve();
+                } catch (err) {
+                  allRejected.push(path);
+                  resolve(); // Continue with next file even if parsing fails
+                }
               } else {
-                feedback.textContent = data.error || "Upload failed.";
+                try {
+                  const data = JSON.parse(xhr.responseText);
+                  allRejected.push(path + (data.error ? ` (${data.error})` : ''));
+                } catch (err) {
+                  allRejected.push(path);
+                }
+                resolve(); // Continue with next file even on error
               }
-            } catch (err) {
-              feedback.textContent = "Upload failed.";
-            }
+            });
+
+            xhr.addEventListener("error", () => {
+              currentUploadXHR = null;
+              allRejected.push(path + " (Network error)");
+              uploadedBytes += file.size; // Count it as processed even if failed
+              resolve(); // Continue with next file
+            });
+
+            xhr.addEventListener("abort", () => {
+              currentUploadXHR = null;
+              uploadCancelled = true;
+              reject(new Error("Upload cancelled"));
+            });
+
+            xhr.open("POST", "{{ url_for('upload') }}");
+            xhr.send(fd);
+          });
+        } catch (err) {
+          if (err.message === "Upload cancelled") {
+            break;
           }
-          confirmBtn.disabled = false;
-          cancelBtn.disabled = false;
-          submitBtn.disabled = false;
-        });
-
-        xhr.addEventListener("error", () => {
-          currentUploadXHR = null;
-          uploadProgress.classList.remove("active");
-          feedback.className = "feedback error";
-          feedback.textContent = "Upload failed: Network error.";
-          confirmBtn.disabled = false;
-          cancelBtn.disabled = false;
-          submitBtn.disabled = false;
-        });
-
-        xhr.addEventListener("abort", () => {
-          currentUploadXHR = null;
-          uploadProgress.classList.remove("active");
-          feedback.className = "feedback";
-          feedback.textContent = "Upload cancelled.";
-          confirmBtn.disabled = false;
-          cancelBtn.disabled = false;
-          submitBtn.disabled = false;
-        });
-
-        xhr.open("POST", "{{ url_for('upload') }}");
-        xhr.send(fd);
-      } catch (err) {
-        currentUploadXHR = null;
-        uploadProgress.classList.remove("active");
-        feedback.className = "feedback error";
-        feedback.textContent = "Upload failed: " + err.message;
-        confirmBtn.disabled = false;
-        cancelBtn.disabled = false;
-        submitBtn.disabled = false;
+          // Continue with next file on other errors
+          allRejected.push(path + " (Upload error)");
+          uploadedBytes += file.size;
+        }
       }
+
+      // Update final progress
+      if (!uploadCancelled) {
+        progressBarFill.style.width = "100%";
+        progressStatus.textContent = "100%";
+      }
+
+      // Show results
+      currentUploadXHR = null;
+      uploadProgress.classList.remove("active");
+      
+      if (uploadCancelled) {
+        feedback.className = "feedback";
+        feedback.textContent = "Upload cancelled.";
+      } else {
+        if (allSaved.length > 0) {
+          feedback.className = "feedback success";
+          feedback.innerHTML = `Uploaded ${allSaved.length} file${allSaved.length !== 1 ? 's' : ''}: <ul><li>` + allSaved.join("</li><li>") + "</li></ul>";
+        }
+        if (allRejected.length > 0) {
+          feedback.className = feedback.className || "feedback error";
+          feedback.innerHTML = (feedback.innerHTML || "") + `<br>Rejected ${allRejected.length} file${allRejected.length !== 1 ? 's' : ''}: <ul><li>` + allRejected.join("</li><li>") + "</li></ul>";
+        }
+        if (allSaved.length === 0 && allRejected.length === 0) {
+          feedback.textContent = "No files uploaded.";
+        }
+      }
+      
+      hideFolderBrowser();
+      filesInput.value = "";
+      folderInput.value = "";
+      updateSubmit();
+      confirmBtn.disabled = false;
+      cancelBtn.disabled = false;
+      submitBtn.disabled = false;
     });
 
     function updateSubmit() {
@@ -906,45 +935,154 @@
       const fileList = filesInput.files;
       if (!fileList.length) { e.preventDefault(); return; }
       e.preventDefault();
+      
+      // Show progress bar for regular file uploads too
+      uploadProgress.classList.add("active");
+      progressBarFill.style.width = "0%";
+      progressStatus.textContent = "0%";
+      progressDetails.textContent = "Preparing upload...";
+      
       submitBtn.disabled = true;
       feedback.textContent = "";
       feedback.className = "feedback";
 
-      const fd = new FormData();
+      // Build file array
+      const fileArray = [];
       for (let i = 0; i < fileList.length; i++) {
         const f = fileList[i];
         if (!f.name) continue;
-        fd.append("files", f);
-        fd.append("paths", f.name);
+        fileArray.push({ file: f, path: f.name });
       }
 
-      try {
-        const r = await fetch("{{ url_for('upload') }}", { method: "POST", body: fd });
-        const data = await r.json().catch(() => ({}));
-        if (r.ok) {
-          if (data.saved && data.saved.length) {
-            feedback.className = "feedback success";
-            feedback.innerHTML = "Uploaded: <ul><li>" + data.saved.join("</li><li>") + "</li></ul>";
+      // Calculate total size
+      let totalSize = 0;
+      fileArray.forEach(({ file }) => {
+        totalSize += file.size;
+      });
+
+      progressDetails.textContent = `Uploading ${fileArray.length} file${fileArray.length !== 1 ? 's' : ''} (${formatSize(totalSize)})...`;
+
+      // Track upload progress
+      let uploadedBytes = 0;
+      const allSaved = [];
+      const allRejected = [];
+      let uploadCancelled = false;
+
+      // Upload files sequentially, one at a time
+      for (let i = 0; i < fileArray.length; i++) {
+        if (uploadCancelled) break;
+        
+        const { file, path } = fileArray[i];
+        const currentFileIndex = i + 1;
+        
+        try {
+          await new Promise((resolve, reject) => {
+            const fd = new FormData();
+            fd.append("files", file);
+            fd.append("paths", path);
+
+            const xhr = new XMLHttpRequest();
+            currentUploadXHR = xhr;
+            
+            xhr.upload.addEventListener("progress", (e) => {
+              if (e.lengthComputable && !uploadCancelled) {
+                const currentFileProgress = e.loaded;
+                const totalUploaded = uploadedBytes + currentFileProgress;
+                const percentComplete = Math.round((totalUploaded / totalSize) * 100);
+                
+                progressBarFill.style.width = percentComplete + "%";
+                progressStatus.textContent = percentComplete + "%";
+                
+                const uploadedSize = formatSize(totalUploaded);
+                const totalSizeStr = formatSize(totalSize);
+                progressDetails.textContent = `[${currentFileIndex}/${fileArray.length}] Uploading ${path}... ${uploadedSize} / ${totalSizeStr}`;
+              }
+            });
+
+            xhr.addEventListener("load", () => {
+              currentUploadXHR = null;
+              if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                  const data = JSON.parse(xhr.responseText);
+                  uploadedBytes += file.size;
+                  
+                  if (data.saved && data.saved.length) {
+                    allSaved.push(...data.saved);
+                  }
+                  if (data.rejected && data.rejected.length) {
+                    allRejected.push(...data.rejected);
+                  }
+                  
+                  resolve();
+                } catch (err) {
+                  allRejected.push(path);
+                  resolve();
+                }
+              } else {
+                try {
+                  const data = JSON.parse(xhr.responseText);
+                  allRejected.push(path + (data.error ? ` (${data.error})` : ''));
+                } catch (err) {
+                  allRejected.push(path);
+                }
+                resolve();
+              }
+            });
+
+            xhr.addEventListener("error", () => {
+              currentUploadXHR = null;
+              allRejected.push(path + " (Network error)");
+              uploadedBytes += file.size;
+              resolve();
+            });
+
+            xhr.addEventListener("abort", () => {
+              currentUploadXHR = null;
+              uploadCancelled = true;
+              reject(new Error("Upload cancelled"));
+            });
+
+            xhr.open("POST", "{{ url_for('upload') }}");
+            xhr.send(fd);
+          });
+        } catch (err) {
+          if (err.message === "Upload cancelled") {
+            break;
           }
-          if (data.rejected && data.rejected.length) {
-            feedback.className = "feedback error";
-            feedback.innerHTML = (feedback.innerHTML || "") + "Rejected: <ul><li>" + data.rejected.join("</li><li>") + "</li></ul>";
-          }
-          if (!data.saved?.length && !data.rejected?.length) feedback.textContent = "No files uploaded.";
-          filesInput.value = "";
-          updateSubmit();
-        } else {
-          feedback.className = "feedback error";
-          if (r.status === 413) {
-            feedback.textContent = data.error || "File too large. Please try uploading smaller files or increase the server's upload limit.";
-          } else {
-            feedback.textContent = data.error || "Upload failed.";
-          }
+          allRejected.push(path + " (Upload error)");
+          uploadedBytes += file.size;
         }
-      } catch (err) {
-        feedback.className = "feedback error";
-        feedback.textContent = "Upload failed: " + err.message;
       }
+
+      // Update final progress
+      if (!uploadCancelled) {
+        progressBarFill.style.width = "100%";
+        progressStatus.textContent = "100%";
+      }
+
+      // Show results
+      currentUploadXHR = null;
+      uploadProgress.classList.remove("active");
+      
+      if (uploadCancelled) {
+        feedback.className = "feedback";
+        feedback.textContent = "Upload cancelled.";
+      } else {
+        if (allSaved.length > 0) {
+          feedback.className = "feedback success";
+          feedback.innerHTML = `Uploaded ${allSaved.length} file${allSaved.length !== 1 ? 's' : ''}: <ul><li>` + allSaved.join("</li><li>") + "</li></ul>";
+        }
+        if (allRejected.length > 0) {
+          feedback.className = feedback.className || "feedback error";
+          feedback.innerHTML = (feedback.innerHTML || "") + `<br>Rejected ${allRejected.length} file${allRejected.length !== 1 ? 's' : ''}: <ul><li>` + allRejected.join("</li><li>") + "</li></ul>";
+        }
+        if (allSaved.length === 0 && allRejected.length === 0) {
+          feedback.textContent = "No files uploaded.";
+        }
+      }
+      
+      filesInput.value = "";
+      updateSubmit();
       submitBtn.disabled = false;
     });
 
