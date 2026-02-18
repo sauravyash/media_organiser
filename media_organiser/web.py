@@ -16,7 +16,7 @@ app.config["MAX_CONTENT_LENGTH"] = max_upload_size
 
 
 def get_import_dir() -> Path:
-    path = Path(os.environ.get("IMPORT_DIR", "/data/import"))
+    path = Path(os.environ.get("IMPORT_DIR", "./data/import"))
     path.mkdir(parents=True, exist_ok=True)
     return path
 

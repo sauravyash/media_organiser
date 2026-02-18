@@ -806,10 +806,17 @@
 
             xhr.addEventListener("load", () => {
               currentUploadXHR = null;
+              // Update uploadedBytes immediately when file completes
+              uploadedBytes += file.size;
+              
+              // Update progress bar to show completed file
+              const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
+              progressBarFill.style.width = percentComplete + "%";
+              progressStatus.textContent = percentComplete + "%";
+              
               if (xhr.status >= 200 && xhr.status < 300) {
                 try {
                   const data = JSON.parse(xhr.responseText);
-                  uploadedBytes += file.size;
                   
                   if (data.saved && data.saved.length) {
                     allSaved.push(...data.saved);
@@ -836,8 +843,15 @@
 
             xhr.addEventListener("error", () => {
               currentUploadXHR = null;
+              // Update uploadedBytes immediately even on error
+              uploadedBytes += file.size;
+              
+              // Update progress bar
+              const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
+              progressBarFill.style.width = percentComplete + "%";
+              progressStatus.textContent = percentComplete + "%";
+              
               allRejected.push(path + " (Network error)");
-              uploadedBytes += file.size; // Count it as processed even if failed
               resolve(); // Continue with next file
             });
 
@@ -855,8 +869,12 @@
             break;
           }
           // Continue with next file on other errors
-          allRejected.push(path + " (Upload error)");
           uploadedBytes += file.size;
+          // Update progress bar
+          const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
+          progressBarFill.style.width = percentComplete + "%";
+          progressStatus.textContent = percentComplete + "%";
+          allRejected.push(path + " (Upload error)");
         }
       }
 
@@ -1001,10 +1019,17 @@
 
             xhr.addEventListener("load", () => {
               currentUploadXHR = null;
+              // Update uploadedBytes immediately when file completes
+              uploadedBytes += file.size;
+              
+              // Update progress bar to show completed file
+              const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
+              progressBarFill.style.width = percentComplete + "%";
+              progressStatus.textContent = percentComplete + "%";
+              
               if (xhr.status >= 200 && xhr.status < 300) {
                 try {
                   const data = JSON.parse(xhr.responseText);
-                  uploadedBytes += file.size;
                   
                   if (data.saved && data.saved.length) {
                     allSaved.push(...data.saved);
@@ -1031,8 +1056,15 @@
 
             xhr.addEventListener("error", () => {
               currentUploadXHR = null;
-              allRejected.push(path + " (Network error)");
+              // Update uploadedBytes immediately even on error
               uploadedBytes += file.size;
+              
+              // Update progress bar
+              const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
+              progressBarFill.style.width = percentComplete + "%";
+              progressStatus.textContent = percentComplete + "%";
+              
+              allRejected.push(path + " (Network error)");
               resolve();
             });
 
@@ -1049,8 +1081,12 @@
           if (err.message === "Upload cancelled") {
             break;
           }
-          allRejected.push(path + " (Upload error)");
           uploadedBytes += file.size;
+          // Update progress bar
+          const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
+          progressBarFill.style.width = percentComplete + "%";
+          progressStatus.textContent = percentComplete + "%";
+          allRejected.push(path + " (Upload error)");
         }
       }
 
