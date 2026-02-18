@@ -3,13 +3,16 @@ import os
 from pathlib import Path
 
 from flask import Flask, request, render_template, jsonify, redirect, url_for
+from werkzeug.exceptions import RequestEntityTooLarge
 
 app = Flask(
     __name__,
     template_folder=Path(__file__).resolve().parent / "templates",
     static_folder=Path(__file__).resolve().parent / "static",
 )
-app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 * 1024 * 1024  # 2 GB per request
+# Allow up to 30GB by default, configurable via MAX_UPLOAD_SIZE env var
+max_upload_size = int(os.environ.get("MAX_UPLOAD_SIZE", 30 * 1024 * 1024 * 1024))
+app.config["MAX_CONTENT_LENGTH"] = max_upload_size
 
 
 def get_import_dir() -> Path:
@@ -28,6 +31,17 @@ def _safe_relative_path(import_dir: Path, rel_path: str) -> Path | None:
     except (ValueError, OSError):
         pass
     return None
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_file_too_large(e):
+    """Handle 413 Request Entity Too Large errors."""
+    if request.accept_mimetypes.best == "application/json":
+        max_size_gb = app.config["MAX_CONTENT_LENGTH"] / (1024 * 1024 * 1024)
+        return jsonify({
+            "error": f"File too large. Maximum upload size is {max_size_gb:.1f} GB."
+        }), 413
+    return redirect(url_for("index"))
 
 
 @app.route("/")

@@ -229,7 +229,11 @@
           updateSubmit();
         } else {
           feedback.className = "feedback error";
-          feedback.textContent = data.error || "Upload failed.";
+          if (r.status === 413) {
+            feedback.textContent = data.error || "File too large. Please try uploading smaller files or increase the server's upload limit.";
+          } else {
+            feedback.textContent = data.error || "Upload failed.";
+          }
         }
       } catch (err) {
         feedback.className = "feedback error";
