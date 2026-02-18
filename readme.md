@@ -59,51 +59,39 @@ pytest -q
 Generate coverage:
 
 ```bash
-pytest --cov=1760544480media_organiser --cov-report=term --cov-report=xml
+pytest --cov=media_organiser --cov-report=term --cov-report=xml
 ```
 
 ---
 
 ## 🐳 Docker / Compose
 
-Media Organiser is Docker-ready. An example configuration:
+Media Organiser is Docker-ready. Build from the **project root** (where `Dockerfile` and `docker-compose.yml` live). Example:
 
 ```yaml
 # docker-compose.yml
 services:
   media-organiser:
-    build: ./media_organiser
-    container_name: media-organiser
+    build: .
+    container_name: media_organiser
     restart: unless-stopped
     environment:
       IMPORT_DIR: /data/import
       LIB_DIR: /data/library
+    ports:
+      - "6767:6767"
     volumes:
       - /data/import:/data/import
       - /data/content:/data/library
 ```
 
-Entrypoint (`entrypoint.sh`) automatically watches the import folder for new media and runs the organiser:
+The entrypoint (`entrypoint.sh`) does three things:
 
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
+1. **One-off organise** on startup (import → library).
+2. **Background watch** of the import folder with `inotifywait`; when files change, it runs the organiser again (with `--dupe-mode name --emit-nfo all --carry-posters keep`).
+3. **Web upload UI** on port **6767** (Flask). You can upload video/subtitle files into the import folder via the browser.
 
-IMPORT_DIR="${IMPORT_DIR:-/data/import}"
-LIB_DIR="${LIB_DIR:-/data/library}"
-
-echo "[startup] organising once..."
-python /app/organise_media.py "$IMPORT_DIR" "$LIB_DIR" --mode move
-
-echo "[watch] monitoring $IMPORT_DIR for new or changed files..."
-inotifywait -m -r -e close_write,create,move,delete "$IMPORT_DIR" | while read -r _; do
-  sleep 20
-  echo "[watch] change detected — organising..."
-  python /app/main.py "$IMPORT_DIR" "$LIB_DIR" --mode move
-done
-```
-
-This allows you to drop media into the import folder and let the container do the rest.
+So you can either drop files into the mounted import directory on the host, or use the web interface at `http://<host>:6767/` to upload; the container will organise them into the library.
 
 ---
 
@@ -121,6 +109,10 @@ media_organiser/
   sidecars.py          # subtitle discovery + move/copy
   nfo.py               # read existing NFO, merge-first, write movie/episode NFOs
   posters.py           # (optional) local poster sieve and carry logic
+  web.py               # Flask upload UI (optional; used by Docker)
+  templates/           # HTML for web upload (e.g. upload.html)
+  cleanup.py           # cleanup helpers
+  stabilize.py         # stabilisation helpers
 ```
 
 ---
@@ -128,8 +120,9 @@ media_organiser/
 ## 📦 Requirements
 
 * **Python 3.10+**
-* No mandatory third-party packages.
+* For **CLI-only** use: no mandatory third-party packages.
 * (Optional) **Pillow** for poster sieve support.
+* (Optional) **Flask** for the web upload interface (e.g. when using Docker or running `flask --app media_organiser.web:app run`).
 
 ---
 
@@ -164,6 +157,17 @@ Key flags:
 * `--dupe-mode` supports `hash` (fast fingerprint), `size`, or `name`.
 * `--emit-nfo` writes NFO files (merge-first).
 * `--carry-posters` enables optional local poster filtering.
+
+### Web upload (optional)
+
+If Flask is installed, you can run a local upload UI that saves files into an import directory (e.g. for use with the Docker workflow):
+
+```bash
+export IMPORT_DIR=/path/to/import   # optional; default /data/import
+flask --app media_organiser.web:app run --host 0.0.0.0 --port 6767
+```
+
+Then open `http://localhost:6767/`, upload video or subtitle files; they are written to `IMPORT_DIR`. The CLI (or Docker watch) can then organise them into your library.
 
 ---
 

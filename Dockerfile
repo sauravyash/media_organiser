@@ -11,5 +11,5 @@ RUN chmod +x /app/entrypoint.sh
 
 RUN pip install --no-cache-dir -e .
 
-EXPOSE 5000
+EXPOSE 6767
 ENTRYPOINT ["/app/entrypoint.sh"]
