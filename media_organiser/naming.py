@@ -10,6 +10,7 @@ from .constants import (
     MOVIE_DIR_RE,
     SCENE_WORDS,
     GENERIC_DIRS,
+    GENERIC_COLLECTION_DIRS,
     MOVIE_PART_RE,
 )
 
@@ -27,7 +28,13 @@ def detect_quality(filename: str) -> str:
 
 
 def titlecase_soft(s: str) -> str:
-    return " ".join(w if (w.isupper() and len(w) <= 4) else w.capitalize() for w in s.split())
+    def hyphenated_titlecase(w: str) -> str:
+        """Capitalize each segment of a hyphenated word."""
+        if w.isupper() and len(w) <= 4:
+            return w
+        return "-".join(part.capitalize() for part in w.split("-"))
+    
+    return " ".join(hyphenated_titlecase(w) for w in s.split())
 
 def clean_name(raw: str, *, strip_leading_index: bool = True, strip_scene_words: bool = True) -> str:
     name = Path(raw).stem
@@ -125,6 +132,17 @@ def movie_name_from_parents(path: Path, src_root=Path) -> Optional[str]:
         # If your directory regex exposes a "title" group, start from that; else use the raw name
         m = MOVIE_DIR_RE.match(raw) if "MOVIE_DIR_RE" in globals() else None
         candidate = m.group("title") if m and "title" in m.groupdict() else raw
+        
+        # Strip scene words from candidate (e.g. "DVDRip", "XviD") and normalize
+        candidate = SCENE_WORDS.sub(" ", candidate)
+        # Replace dots/underscores with spaces (like clean_name does)
+        candidate = re.sub(r"[._]+", " ", candidate)
+        # Strip trailing release group patterns (e.g., "-DoNE", "-Larceny")
+        candidate = re.sub(r"-[A-Za-z0-9]+\s*$", "", candidate)
+        # Normalize spaces and strip separators
+        candidate = re.sub(r"\s+", " ", candidate).strip(" .-_")
+        if not candidate or len(candidate) < 2:
+            continue
 
         # Tokenize like the file-based function
         sep = find_separator(candidate) or " "
@@ -224,11 +242,53 @@ def guess_movie_name_from_file(filename: str) -> str:
     base = titlecase_soft(" ".join(title_tokens).strip())
     return f"{base}"
 
+
+def title_from_filename_for_generic_parent(path: Path) -> Optional[str]:
+    """
+    When parent is a generic collection dir (e.g. "Disney Movies"), extract title from filename.
+    Handles patterns like:
+    - "2001 - Atlantis The Lost Empire.avi" -> "Atlantis The Lost Empire"
+    - "01. John Henry (2000).mkv" -> "John Henry"
+    """
+    stem = path.stem
+    
+    # Pattern 1: "YEAR - Title" or "YEAR - Title (YEAR)"
+    year_title_match = re.match(r"^(?:19|20)\d{2}\s*[-–—]\s*(.+)$", stem)
+    if year_title_match:
+        title_part = year_title_match.group(1)
+        # Strip trailing (YEAR) if present
+        title_part = re.sub(r"\s*\(\d{4}\)\s*$", "", title_part)
+        # Normalize spaces/dots
+        title_part = re.sub(r"[._]+", " ", title_part)
+        title_part = re.sub(r"\s+", " ", title_part).strip()
+        if title_part:
+            return titlecase_soft(title_part)
+    
+    # Pattern 2: "NN. Title" or "NN. Title (YEAR)"
+    index_title_match = re.match(r"^\d{1,3}[.\s)\-]+\s*(.+?)(?:\s*\(\d{4}\))?\s*$", stem)
+    if index_title_match:
+        title_part = index_title_match.group(1)
+        # Normalize spaces/dots
+        title_part = re.sub(r"[._]+", " ", title_part)
+        title_part = re.sub(r"\s+", " ", title_part).strip()
+        if title_part:
+            return titlecase_soft(title_part)
+    
+    return None
+
+
 def guess_movie_name(path: Path, src_root=Path) -> tuple[str, Path|None]:
     used_nfo = find_nfo(path)
     if used_nfo:
         t = parse_local_nfo_for_title(used_nfo)
         if t: return t, used_nfo
+    
+    # If parent is a generic collection dir, try extracting title from filename
+    if path.parent and path.parent.name.lower() in GENERIC_COLLECTION_DIRS:
+        title_from_file = title_from_filename_for_generic_parent(path)
+        if title_from_file:
+            return title_from_file, used_nfo
+    
     by_parent = movie_name_from_parents(path, src_root=src_root)
     if by_parent: return by_parent, used_nfo
     return guess_movie_name_from_file(path.stem), used_nfo

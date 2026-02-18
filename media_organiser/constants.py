@@ -24,6 +24,7 @@ RESOLUTION_WITH_BRACKETS_PATTERN = re.compile(
 
 MOVIE_DIR_RE       = re.compile(r"(?i)^(?P<title>.+?)\s*[\(\[\{]?(?P<year>(?:19|20)\d{2})[\)\]\}]?$")
 GENERIC_DIRS       = {"subs", "subtitles", "other", "cd 1", "cd 2", "sample"}
+GENERIC_COLLECTION_DIRS = {"disney movies", "disney short films"}
 IGNORED_PATH_COMPONENTS = {".AppleDouble", "__MACOSX"}
 MOVIE_PART_RE      = re.compile(r"(?i)(?:cd\s*(\d+)|part\s*(\d+)|pt\s*(\d+))")
 SCENE_WORDS        = re.compile(r"(?i)\b(BluRay|WEB[- ]?DL|WEBRip|WEBDL|BRRip|HDRip|DVDRip|x264|x265|h\.?264|h\.?265|HEVC|AV1|AAC|DTS|DDP?5\.1|10bit|8bit|Atmos|Remux|Proper|Repack|Extended|IMAX|HDTV|XviD|ION10|LOL|KILLERS|SVA|mSD|STRiFE|GalaxyTV)\b")
