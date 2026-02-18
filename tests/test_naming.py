@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 from media_organiser.cli import main
-from media_organiser.naming import is_tv_episode, detect_quality, clean_name, guess_movie_name_from_file
+from media_organiser.naming import is_tv_episode, detect_quality, clean_name, guess_movie_name_from_file, guess_movie_name, movie_part_suffix
 
 
 def test_tv_patterns_basic():
@@ -26,6 +26,25 @@ def test_quality_detection():
 def test_clean_name_removes_scene_noise():
     s = clean_name("Some.Movie.2012.1080p.BluRay.x265-[eztv]")
     assert s == "Some Movie 2012"
+
+
+def test_guess_movie_name_from_file_does_not_print_debug(capsys):
+    """guess_movie_name_from_file must not print sep/tokens/after year to stdout."""
+    guess_movie_name_from_file("Some.Movie.2020.720p")
+    out = capsys.readouterr().out
+    assert "sep:" not in out
+    assert "after year" not in out
+
+
+def test_guess_movie_name_does_not_print_using_nfo_for_name(tmp_path, capsys):
+    """guess_movie_name must not print 'using nfo for name' to stdout."""
+    # NFO with no usable title -> falls back to file/parent; no debug print
+    (tmp_path / "movie.nfo").write_text("<movie><year>2020</year></movie>")
+    path = tmp_path / "Some.Movie.2020.720p.mkv"
+    path.touch()
+    guess_movie_name(path, tmp_path)
+    out = capsys.readouterr().out
+    assert "using nfo for name" not in out
 
 
 def _run_cli(src: Path, dst: Path, extra_args: list[str]):

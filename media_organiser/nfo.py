@@ -39,7 +39,8 @@ def _normalize_title_text(s: str) -> str:
 def parse_local_nfo_for_title(nfo_path: Path) -> Optional[str]:
     try:
         raw = nfo_path.read_text(errors="ignore").strip()
-        print(raw)
+        if "\x00" in raw:
+            return None
         try:
             root = ET.fromstring(raw)
             node = root if root.tag.lower() in ("movie","tvshow","episodedetails") else root.find("movie")

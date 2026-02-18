@@ -127,6 +127,54 @@ def test_dry_run_does_not_move_or_write_nfo(tmp_path, monkeypatch):
     assert called["count"] == 0, "write_movie_nfo must not be called in dry-run"
 
 
+def test_skip_videos_under_apple_double_and_macosx(tmp_path):
+    """
+    Videos under .AppleDouble or __MACOSX must be skipped; no MOVE/COPY for them,
+    and no fake 'Appledouble' movie folder in output.
+    """
+    src = tmp_path / "in"
+    dst = tmp_path / "out"
+    src.mkdir()
+    (src / ".AppleDouble").mkdir()
+    (src / "__MACOSX").mkdir()
+
+    # Enough bytes so is_file_size_stable passes (interval=1.0)
+    (src / ".AppleDouble" / "Some.Movie.2020.720p.mkv").write_bytes(b"X" * 4096)
+    (src / "__MACOSX" / "foo.mkv").write_bytes(b"Y" * 4096)
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        run_cli_in_proc(src, dst, ["--mode", "copy", "--dry-run"])
+
+    out = buf.getvalue()
+    for line in out.splitlines():
+        if line.startswith("MOVE:") or line.startswith("COPY:"):
+            assert ".AppleDouble" not in line, f"AppleDouble path must not be moved: {line}"
+            assert "__MACOSX" not in line, f"__MACOSX path must not be moved: {line}"
+    assert "Appledouble" not in out, "No fake Appledouble movie folder should appear in output"
+
+
+def test_movie_cd1_cd2_preserves_part_in_filename(tmp_path):
+    """
+    Multi-part movies (CD 1, CD 2 or CD1/CD2 in path) should get part suffix in output filename.
+    """
+    src = tmp_path / "in"
+    dst = tmp_path / "out"
+    (src / "Shrek Series" / "Shrek Original" / "CD 1").mkdir(parents=True)
+    (src / "Shrek Series" / "Shrek Original" / "CD 2").mkdir(parents=True)
+    (src / "Shrek Series" / "Shrek Original" / "CD 1" / "Shrek.DVDRip.XviD.CD1-BELiAL.avi").write_bytes(b"X" * 4096)
+    (src / "Shrek Series" / "Shrek Original" / "CD 2" / "Shrek.DVDRip.XviD.CD2-BELiAL.avi").write_bytes(b"Y" * 4096)
+
+    run_cli_in_proc(src, dst, ["--mode", "copy", "--dupe-mode", "off"])
+
+    out_dir = dst / "movies" / "Shrek Original"
+    assert out_dir.exists()
+    files = list(out_dir.glob("*.avi"))
+    stems = [f.stem for f in files]
+    assert any("CD 1" in s for s in stems), f"Expected a filename with 'CD 1' in stem, got {stems}"
+    assert any("CD 2" in s for s in stems), f"Expected a filename with 'CD 2' in stem, got {stems}"
+
+
 def test_duplicate_skip_in_hash_mode_prints_and_skips(tmp_path, capsys):
     """
     When a duplicate exists in the destination and --dupe-mode hash is active,

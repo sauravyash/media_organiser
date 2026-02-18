@@ -135,6 +135,27 @@ def test_parse_title_outer_exception_returns_none(tmp_path):
     assert nfo.parse_local_nfo_for_title(d) is None
 
 
+def test_parse_local_nfo_for_title_does_not_print_nfo_body(tmp_path, capsys):
+    """parse_local_nfo_for_title must not dump NFO content to stdout."""
+    p = tmp_path / "movie.nfo"
+    p.write_text("<movie><title>Some Movie</title><plot>PROUDLY PRESENTS: RELEASE iNFO</plot></movie>")
+    result = nfo.parse_local_nfo_for_title(p)
+    assert result == "Some Movie"
+    out = capsys.readouterr().out
+    assert "PROUDLY" not in out
+    assert "RELEASE iNFO" not in out
+
+
+def test_parse_local_nfo_for_title_returns_none_for_binary_file(tmp_path, capsys):
+    """Binary or null-containing NFO should return None and not raise."""
+    p = tmp_path / "binary.nfo"
+    p.write_bytes(b"\x00\x01\x02\x03binary content")
+    result = nfo.parse_local_nfo_for_title(p)
+    assert result is None
+    out = capsys.readouterr().out
+    assert "\x00" not in out
+
+
 # ---------------------------- read_nfo_to_meta -------------------------------
 
 def test_read_nfo_movie_with_uniqueid_and_subtitles(tmp_path):

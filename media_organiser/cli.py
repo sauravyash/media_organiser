@@ -4,8 +4,8 @@ from pathlib import Path
 
 from .stabilize import is_file_size_stable
 from .cleanup import prune_junk_then_empty_dirs
-from .constants import VIDEO_EXTS, YEAR_PATTERN
-from .naming import detect_quality, is_tv_episode, _clean_title, guess_movie_name
+from .constants import VIDEO_EXTS, YEAR_PATTERN, IGNORED_PATH_COMPONENTS
+from .naming import detect_quality, is_tv_episode, _clean_title, guess_movie_name, movie_part_suffix
 from .nfo import (
     find_nfo,  read_nfo_to_meta, nfo_path_for,
     write_movie_nfo, write_episode_nfo, merge_first, merge_subtitles
@@ -50,6 +50,8 @@ def main():
     for path in items:
         if not path.is_file(): continue
         if path.suffix.lower() not in VIDEO_EXTS: continue
+        if any(part in IGNORED_PATH_COMPONENTS for part in path.parts):
+            continue
 
         # skip incomplete uploads (e.g., vsftpd client still writing)
         if not is_file_size_stable(path, interval=1.0):
@@ -121,8 +123,9 @@ def main():
             year_guess = None
             m = YEAR_PATTERN.search(path.name) or YEAR_PATTERN.search(path.parent.name)
             if m: year_guess = m.group(0)
+            part_suffix = movie_part_suffix(path)
             folder_name = f"{movie_name}"
-            full_name = f"{folder_name} {f'({year_guess}) ' if year_guess else ''}[{quality}]"
+            full_name = f"{folder_name} {f'({year_guess}) ' if year_guess else ''}[{quality}]{part_suffix}"
             out_dir = movies_root / folder_name
             out_dir.mkdir(parents=True, exist_ok=True)
             out_file = out_dir / f"{full_name}{path.suffix.lower()}"

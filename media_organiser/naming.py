@@ -9,7 +9,8 @@ from .constants import (
     YEAR_PATTERN,
     MOVIE_DIR_RE,
     SCENE_WORDS,
-    GENERIC_DIRS
+    GENERIC_DIRS,
+    MOVIE_PART_RE,
 )
 
 
@@ -166,13 +167,31 @@ def movie_name_from_parents(path: Path, src_root=Path) -> Optional[str]:
 
     return None
 
+
+def movie_part_suffix(path: Path) -> str:
+    """
+    If the path (filename stem or parent dir) indicates a multi-part movie (CD1, CD2, Part1, etc.),
+    return a suffix like ' CD1' or ' CD 2' for the output filename; otherwise return ''.
+    """
+    # Check filename stem first (e.g. Shrek.DVDRip.XviD.CD1-BELiAL)
+    m = MOVIE_PART_RE.search(path.stem)
+    if m:
+        num = m.group(1) or m.group(2) or m.group(3)
+        return f" CD {num}"
+    # Check parent dir (e.g. .../CD 1/Shrek.avi)
+    if path.parent and path.parent.name:
+        m = MOVIE_PART_RE.search(path.parent.name)
+        if m:
+            num = m.group(1) or m.group(2) or m.group(3)
+            return f" CD {num}"
+    return ""
+
+
 def guess_movie_name_from_file(filename: str) -> str:
     p = Path(filename)
     suffix = p.suffix  # e.g. ".mp4"
     sep = find_separator(p.stem) or " "
-    print(f"sep: {sep}")
     tokens = p.stem.split(sep=sep)
-    print(tokens)
     # separate resolution-ish tokens from title tokens
     res_tokens, title_tokens = [], []
     for tok in tokens:
@@ -202,8 +221,6 @@ def guess_movie_name_from_file(filename: str) -> str:
             title_tokens = title_tokens[:i]
             break
 
-    print("\n after year:", title_tokens)
-
     base = titlecase_soft(" ".join(title_tokens).strip())
     return f"{base}"
 
@@ -211,7 +228,6 @@ def guess_movie_name(path: Path, src_root=Path) -> tuple[str, Path|None]:
     used_nfo = find_nfo(path)
     if used_nfo:
         t = parse_local_nfo_for_title(used_nfo)
-        print("using nfo for name", t)
         if t: return t, used_nfo
     by_parent = movie_name_from_parents(path, src_root=src_root)
     if by_parent: return by_parent, used_nfo
