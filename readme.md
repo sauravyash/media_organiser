@@ -89,7 +89,7 @@ The entrypoint (`entrypoint.sh`) does three things:
 
 1. **One-off organise** on startup (import → library).
 2. **Background watch** of the import folder with `inotifywait`; when files change, it runs the organiser again (with `--dupe-mode name --emit-nfo all --carry-posters keep`).
-3. **Web upload UI** on port **6767** (Flask). You can upload video/subtitle files into the import folder via the browser.
+3. **Web upload UI** on port **6767** (Flask). You can upload any files into the import folder via the browser. Use “choose folder” to upload a directory and preserve its structure (NFO, subtitles, images).
 
 So you can either drop files into the mounted import directory on the host, or use the web interface at `http://<host>:6767/` to upload; the container will organise them into the library.
 
@@ -167,7 +167,7 @@ export IMPORT_DIR=/path/to/import   # optional; default /data/import
 flask --app media_organiser.web:app run --host 0.0.0.0 --port 6767
 ```
 
-Then open `http://localhost:6767/`, upload video or subtitle files; they are written to `IMPORT_DIR`. The CLI (or Docker watch) can then organise them into your library.
+Then open `http://localhost:6767/`, upload files (or a folder to preserve structure); they are written to `IMPORT_DIR`. The CLI (or Docker watch) can then organise them into your library.
 
 ---
 

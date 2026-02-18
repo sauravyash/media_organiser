@@ -31,6 +31,51 @@ jobs:
           pytest -q --maxfail=1 --disable-warnings
 
 
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Poetry and run tests
+        run: |
+          pip install poetry
+          poetry config virtualenvs.create false
+          poetry install
+          pytest -q --maxfail=1 --disable-warnings
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        run: docker build -t media-organiser:ci .
+
+      - name: Run container and verify web server
+        run: |
+          docker run -d --name media-organiser-ci \
+            -e IMPORT_DIR=/data/import \
+            -e LIB_DIR=/data/library \
+            -p 6767:6767 \
+            media-organiser:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:6767/ > /dev/null; then
+              echo "Web server responded OK"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "Web server did not respond in time"
+              docker logs media-organiser-ci
+              exit 1
+            fi
+            sleep 1
+          done
+          docker stop media-organiser-ci
+
   coverage:
     # run once, after all tests (and only on push to master)
     needs: test

@@ -4,10 +4,6 @@ from pathlib import Path
 
 from flask import Flask, request, render_template, jsonify, redirect, url_for
 
-from .constants import VIDEO_EXTS, SUB_EXTS
-
-UPLOAD_EXTS = VIDEO_EXTS | SUB_EXTS
-
 app = Flask(
     __name__,
     template_folder=Path(__file__).resolve().parent / "templates",
@@ -22,13 +18,21 @@ def get_import_dir() -> Path:
     return path
 
 
-def allowed_file(filename: str) -> bool:
-    return Path(filename).suffix.lower() in UPLOAD_EXTS
+def _safe_relative_path(import_dir: Path, rel_path: str) -> Path | None:
+    """Resolve rel_path under import_dir, rejecting path traversal. Returns None if invalid."""
+    base = import_dir.resolve()
+    try:
+        resolved = (import_dir / rel_path).resolve()
+        if base in resolved.parents:
+            return resolved
+    except (ValueError, OSError):
+        pass
+    return None
 
 
 @app.route("/")
 def index():
-    return render_template("upload.html", allowed_extensions=sorted(UPLOAD_EXTS))
+    return render_template("upload.html")
 
 
 @app.route("/upload", methods=["POST"])
@@ -43,23 +47,26 @@ def upload():
             return jsonify({"error": "No files selected"}), 400
         return redirect(url_for("index"))
 
+    paths = request.form.getlist("paths")
     saved = []
     rejected = []
-    for f in files:
+    for i, f in enumerate(files):
         if not f or not f.filename:
             continue
-        if not allowed_file(f.filename):
-            rejected.append(f.filename)
+        rel_path = paths[i] if i < len(paths) else f.filename
+        dest = _safe_relative_path(import_dir, rel_path)
+        if dest is None:
+            rejected.append(rel_path)
             continue
-        dest = import_dir / f.filename
+        dest.parent.mkdir(parents=True, exist_ok=True)
         if dest.exists():
-            base, ext = dest.stem, dest.suffix
+            stem, ext = dest.stem, dest.suffix
             n = 1
             while dest.exists():
-                dest = import_dir / f"{base} ({n}){ext}"
+                dest = dest.parent / f"{stem} ({n}){ext}"
                 n += 1
         f.save(str(dest))
-        saved.append(dest.name)
+        saved.append(str(dest.relative_to(import_dir)))
 
     if request.accept_mimetypes.best == "application/json":
         return jsonify({"saved": saved, "rejected": rejected})

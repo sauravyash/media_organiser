@@ -77,6 +77,16 @@
       text-align: center;
     }
     .zone .prompt strong { color: var(--text); }
+    .linkBtn {
+      background: none;
+      border: none;
+      color: var(--accent);
+      font: inherit;
+      cursor: pointer;
+      padding: 0;
+      text-decoration: underline;
+    }
+    .linkBtn:hover { color: var(--accent-dim); }
     .exts {
       font-family: "JetBrains Mono", monospace;
       font-size: 0.75rem;
@@ -119,10 +129,11 @@
 
   <form id="form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
     <div class="zone" id="zone" role="button" tabindex="0">
-      <input type="file" name="files" id="files" multiple accept="{{ allowed_extensions | join(',') }}">
+      <input type="file" name="files" id="files" multiple>
+      <input type="file" name="folder" id="folder" webkitdirectory style="display:none">
       <span class="icon" aria-hidden="true">📁</span>
-      <span class="prompt"><strong>Drop files here</strong> or click to choose</span>
-      <span class="exts">Allowed: <span>{{ allowed_extensions | join(" ") }}</span></span>
+      <span class="prompt"><strong>Drop files here</strong> or <button type="button" class="linkBtn" id="pickFiles">choose files</button> / <button type="button" class="linkBtn" id="pickFolder">choose folder</button></span>
+      <span class="exts">All file types • Folder upload preserves structure (NFO, subtitles, images)</span>
     </div>
     <button type="submit" class="btn" id="submitBtn" disabled>Upload</button>
   </form>
@@ -131,37 +142,50 @@
 
   <script>
     const zone = document.getElementById("zone");
-    const input = document.getElementById("files");
+    const filesInput = document.getElementById("files");
+    const folderInput = document.getElementById("folder");
     const submitBtn = document.getElementById("submitBtn");
     const feedback = document.getElementById("feedback");
     const form = document.getElementById("form");
 
+    document.getElementById("pickFiles").addEventListener("click", (e) => { e.stopPropagation(); folderInput.value = ""; filesInput.click(); });
+    document.getElementById("pickFolder").addEventListener("click", (e) => { e.stopPropagation(); filesInput.value = ""; folderInput.click(); });
+
     function updateSubmit() {
-      submitBtn.disabled = !input.files.length;
+      const hasFiles = filesInput.files.length > 0 || folderInput.files.length > 0;
+      submitBtn.disabled = !hasFiles;
     }
 
-    zone.addEventListener("click", () => input.click());
-    zone.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
-    input.addEventListener("change", updateSubmit);
+    zone.addEventListener("click", (e) => { if (!e.target.closest(".linkBtn")) filesInput.click(); });
+    zone.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); filesInput.click(); } });
+    filesInput.addEventListener("change", updateSubmit);
+    folderInput.addEventListener("change", updateSubmit);
 
     zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragover"); });
     zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
     zone.addEventListener("drop", (e) => {
       e.preventDefault();
       zone.classList.remove("dragover");
-      input.files = e.dataTransfer.files;
+      folderInput.value = "";
+      filesInput.files = e.dataTransfer.files;
       updateSubmit();
     });
 
     form.addEventListener("submit", async (e) => {
-      if (!input.files.length) { e.preventDefault(); return; }
+      const useFolder = folderInput.files.length > 0;
+      const fileList = useFolder ? folderInput.files : filesInput.files;
+      if (!fileList.length) { e.preventDefault(); return; }
       e.preventDefault();
       submitBtn.disabled = true;
       feedback.textContent = "";
       feedback.className = "feedback";
 
       const fd = new FormData();
-      for (const f of input.files) fd.append("files", f);
+      for (let i = 0; i < fileList.length; i++) {
+        const f = fileList[i];
+        fd.append("files", f);
+        fd.append("paths", f.webkitRelativePath || f.name);
+      }
 
       try {
         const r = await fetch("{{ url_for('upload') }}", { method: "POST", body: fd });
@@ -173,10 +197,11 @@
           }
           if (data.rejected && data.rejected.length) {
             feedback.className = "feedback error";
-            feedback.innerHTML = (feedback.innerHTML || "") + "Rejected (wrong type): <ul><li>" + data.rejected.join("</li><li>") + "</li></ul>";
+            feedback.innerHTML = (feedback.innerHTML || "") + "Rejected: <ul><li>" + data.rejected.join("</li><li>") + "</li></ul>";
           }
           if (!data.saved?.length && !data.rejected?.length) feedback.textContent = "No files uploaded.";
-          input.value = "";
+          filesInput.value = "";
+          folderInput.value = "";
           updateSubmit();
         } else {
           feedback.className = "feedback error";
