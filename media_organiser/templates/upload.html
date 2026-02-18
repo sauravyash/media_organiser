@@ -129,6 +129,182 @@
     .feedback.success { color: var(--accent); }
     .feedback.error { color: var(--danger); }
     .feedback ul { margin: 0.25rem 0 0 1rem; padding: 0; }
+    .folder-browser {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(15, 18, 22, 0.95);
+      z-index: 1000;
+      padding: 2rem;
+      overflow: auto;
+    }
+    .folder-browser.active {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .browser-window {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 60rem;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+    .browser-header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .browser-header h2 {
+      margin: 0;
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .browser-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 1.5rem;
+      cursor: pointer;
+      padding: 0;
+      width: 2rem;
+      height: 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      transition: background 0.2s, color 0.2s;
+    }
+    .browser-close:hover {
+      background: var(--border);
+      color: var(--text);
+    }
+    .browser-content {
+      flex: 1;
+      overflow: auto;
+      padding: 1rem;
+    }
+    .browser-breadcrumb {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.8125rem;
+      color: var(--muted);
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .breadcrumb-item {
+      cursor: pointer;
+      color: var(--accent);
+      transition: color 0.2s;
+    }
+    .breadcrumb-item:hover {
+      color: var(--accent-dim);
+    }
+    .breadcrumb-separator {
+      color: var(--muted);
+    }
+    .file-tree {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    .file-tree-item {
+      padding: 0.5rem 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      border-radius: 6px;
+      transition: background 0.2s;
+      cursor: pointer;
+    }
+    .file-tree-item:hover {
+      background: rgba(63, 185, 80, 0.08);
+    }
+    .file-tree-item input[type="checkbox"] {
+      width: 1.125rem;
+      height: 1.125rem;
+      cursor: pointer;
+      accent-color: var(--accent);
+    }
+    .file-tree-item-label {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.9375rem;
+      color: var(--text);
+    }
+    .file-icon {
+      font-size: 1.125rem;
+      width: 1.25rem;
+      text-align: center;
+    }
+    .file-name {
+      flex: 1;
+    }
+    .file-size {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-left: auto;
+    }
+    .folder-item {
+      font-weight: 500;
+    }
+    .browser-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }
+    .selected-count {
+      font-size: 0.875rem;
+      color: var(--muted);
+    }
+    .browser-actions {
+      display: flex;
+      gap: 0.75rem;
+    }
+    .browser-btn {
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 6px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .browser-btn-primary {
+      background: var(--accent);
+      color: var(--bg);
+    }
+    .browser-btn-primary:hover {
+      background: var(--accent-dim);
+    }
+    .browser-btn-secondary {
+      background: var(--border);
+      color: var(--text);
+    }
+    .browser-btn-secondary:hover {
+      background: #353b47;
+    }
   </style>
 </head>
 <body>
@@ -148,6 +324,24 @@
 
   <div class="feedback" id="feedback" aria-live="polite"></div>
 
+  <div class="folder-browser" id="folderBrowser">
+    <div class="browser-window">
+      <div class="browser-header">
+        <h2>Select Files to Upload</h2>
+        <button class="browser-close" id="browserClose" aria-label="Close">×</button>
+      </div>
+      <div class="browser-breadcrumb" id="breadcrumb"></div>
+      <div class="browser-content" id="browserContent"></div>
+      <div class="browser-footer">
+        <div class="selected-count" id="selectedCount">0 files selected</div>
+        <div class="browser-actions">
+          <button class="browser-btn browser-btn-secondary" id="cancelBtn">Cancel</button>
+          <button class="browser-btn browser-btn-primary" id="confirmBtn">Upload Selected</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const zone = document.getElementById("zone");
     const filesInput = document.getElementById("files");
@@ -155,61 +349,316 @@
     const submitBtn = document.getElementById("submitBtn");
     const feedback = document.getElementById("feedback");
     const form = document.getElementById("form");
+    const folderBrowser = document.getElementById("folderBrowser");
+    const browserContent = document.getElementById("browserContent");
+    const breadcrumb = document.getElementById("breadcrumb");
+    const selectedCount = document.getElementById("selectedCount");
+    const browserClose = document.getElementById("browserClose");
+    const cancelBtn = document.getElementById("cancelBtn");
+    const confirmBtn = document.getElementById("confirmBtn");
 
-    document.getElementById("pickFiles").addEventListener("click", (e) => { e.stopPropagation(); folderInput.value = ""; filesInput.click(); });
-    document.getElementById("pickFolder").addEventListener("click", (e) => { e.stopPropagation(); filesInput.value = ""; folderInput.click(); });
+    let folderTree = null;
+    let currentPath = [];
+    let selectedFiles = new Set();
+    let folderFileList = null; // Store the original FileList
 
-    function updateSubmit() {
-      const hasFiles = filesInput.files.length > 0 || folderInput.files.length > 0;
-      submitBtn.disabled = !hasFiles;
+    // Build tree structure from FileList
+    function buildFileTree(fileList) {
+      const tree = {};
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        // webkitRelativePath should be set when using webkitdirectory
+        // It's relative to the selected folder root
+        const path = file.webkitRelativePath || file.name;
+        if (!path) continue;
+        
+        const parts = path.split('/').filter(p => p.length > 0);
+        if (parts.length === 0) continue;
+        
+        let current = tree;
+        for (let j = 0; j < parts.length; j++) {
+          const part = parts[j];
+          if (j === parts.length - 1) {
+            // It's a file
+            current[part] = { type: 'file', file: file, path: path };
+          } else {
+            // It's a folder
+            if (!current[part]) {
+              current[part] = { type: 'folder', children: {} };
+            }
+            current = current[part].children;
+          }
+        }
+      }
+      return tree;
     }
 
-    // When clicking the zone, show a simple prompt to choose files or folder
-    zone.addEventListener("click", (e) => { 
-      if (!e.target.closest(".linkBtn")) {
-        // Show a simple choice: prefer folder selection for better UX
-        // On most systems, users can cancel and choose files if needed
-        folderInput.click();
+    // Format file size
+    function formatSize(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    // Get current folder from path
+    function getCurrentFolder() {
+      if (!folderTree) return null;
+      let current = folderTree;
+      for (const part of currentPath) {
+        if (current && current[part] && current[part].type === 'folder') {
+          current = current[part].children;
+        } else {
+          return null;
+        }
+      }
+      return current;
+    }
+
+    // Render breadcrumb
+    function renderBreadcrumb() {
+      breadcrumb.innerHTML = '';
+      const items = ['Root', ...currentPath];
+      items.forEach((item, index) => {
+        if (index > 0) {
+          const sep = document.createElement('span');
+          sep.className = 'breadcrumb-separator';
+          sep.textContent = '/';
+          breadcrumb.appendChild(sep);
+        }
+        const span = document.createElement('span');
+        span.className = 'breadcrumb-item';
+        span.textContent = item;
+        if (index < items.length - 1) {
+          span.onclick = () => {
+            currentPath = currentPath.slice(0, index);
+            renderFolder();
+          };
+        }
+        breadcrumb.appendChild(span);
+      });
+    }
+
+    // Render folder contents
+    function renderFolder() {
+      const current = getCurrentFolder();
+      if (!current) return;
+
+      renderBreadcrumb();
+
+      const items = Object.keys(current).sort((a, b) => {
+        const aIsFolder = current[a].type === 'folder';
+        const bIsFolder = current[b].type === 'folder';
+        if (aIsFolder && !bIsFolder) return -1;
+        if (!aIsFolder && bIsFolder) return 1;
+        return a.localeCompare(b);
+      });
+
+      const ul = document.createElement('ul');
+      ul.className = 'file-tree';
+
+      items.forEach(name => {
+        const item = current[name];
+        const li = document.createElement('li');
+        li.className = 'file-tree-item';
+        if (item.type === 'folder') {
+          li.classList.add('folder-item');
+        }
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = true; // Checked by default
+        const itemId = item.path || (currentPath.length > 0 ? currentPath.join('/') + '/' + name : name);
+        checkbox.id = `file-${itemId}`;
+        
+        if (item.type === 'file') {
+          selectedFiles.add(item.path);
+          checkbox.onchange = (e) => {
+            if (e.target.checked) {
+              selectedFiles.add(item.path);
+            } else {
+              selectedFiles.delete(item.path);
+            }
+            updateSelectedCount();
+          };
+        } else {
+          // For folders, select/deselect all children
+          // First, select all files in this folder by default
+          function selectAllFilesInFolder(folderNode) {
+            if (!folderNode || !folderNode.children) return;
+            Object.keys(folderNode.children).forEach(childName => {
+              const child = folderNode.children[childName];
+              if (child.type === 'file') {
+                selectedFiles.add(child.path);
+              } else if (child.type === 'folder') {
+                selectAllFilesInFolder(child);
+              }
+            });
+          }
+          selectAllFilesInFolder(item);
+          
+          checkbox.onchange = (e) => {
+            toggleFolderSelection(item, e.target.checked);
+            updateSelectedCount();
+          };
+        }
+
+        const label = document.createElement('div');
+        label.className = 'file-tree-item-label';
+        
+        const icon = document.createElement('span');
+        icon.className = 'file-icon';
+        icon.textContent = item.type === 'folder' ? '📁' : '📄';
+        
+        const fileName = document.createElement('span');
+        fileName.className = 'file-name';
+        fileName.textContent = name;
+        
+        label.appendChild(icon);
+        label.appendChild(fileName);
+
+        if (item.type === 'file') {
+          const size = document.createElement('span');
+          size.className = 'file-size';
+          size.textContent = formatSize(item.file.size);
+          label.appendChild(size);
+        }
+
+        li.appendChild(checkbox);
+        li.appendChild(label);
+
+        if (item.type === 'folder') {
+          li.onclick = (e) => {
+            if (e.target.type !== 'checkbox') {
+              currentPath.push(name);
+              renderFolder();
+            }
+          };
+        }
+
+        ul.appendChild(li);
+      });
+
+      browserContent.innerHTML = '';
+      browserContent.appendChild(ul);
+      updateSelectedCount();
+    }
+
+    // Toggle folder selection (select/deselect all children)
+    function toggleFolderSelection(folderItem, checked) {
+      function traverse(node) {
+        if (!node || !node.children) return;
+        Object.keys(node.children).forEach(name => {
+          const child = node.children[name];
+          if (child.type === 'file') {
+            if (checked) {
+              selectedFiles.add(child.path);
+            } else {
+              selectedFiles.delete(child.path);
+            }
+            // Update checkbox if it exists
+            const checkbox = document.getElementById(`file-${child.path}`);
+            if (checkbox) {
+              checkbox.checked = checked;
+            }
+          } else if (child.type === 'folder') {
+            traverse(child);
+          }
+        });
+      }
+      traverse(folderItem);
+    }
+
+    // Update selected count
+    function updateSelectedCount() {
+      const count = selectedFiles.size;
+      selectedCount.textContent = `${count} file${count !== 1 ? 's' : ''} selected`;
+      confirmBtn.disabled = count === 0;
+    }
+
+    // Show folder browser
+    function showFolderBrowser(fileList) {
+      if (!fileList || fileList.length === 0) {
+        return;
+      }
+      
+      folderFileList = fileList; // Store the FileList
+      folderTree = buildFileTree(fileList);
+      currentPath = [];
+      selectedFiles.clear();
+      
+      // Select all files by default
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const path = file.webkitRelativePath || file.name;
+        selectedFiles.add(path);
+      }
+      
+      renderFolder();
+      folderBrowser.classList.add('active');
+      confirmBtn.disabled = false; // Enable by default since files are checked
+    }
+
+    // Hide folder browser
+    function hideFolderBrowser() {
+      folderBrowser.classList.remove('active');
+      folderTree = null;
+      currentPath = [];
+      selectedFiles.clear();
+      folderFileList = null;
+      folderInput.value = '';
+    }
+
+    // Event listeners
+    document.getElementById("pickFiles").addEventListener("click", (e) => { 
+      e.stopPropagation(); 
+      folderInput.value = ""; 
+      filesInput.click(); 
+    });
+    
+    document.getElementById("pickFolder").addEventListener("click", (e) => { 
+      e.stopPropagation(); 
+      filesInput.value = ""; 
+      folderInput.click(); 
+    });
+
+    folderInput.addEventListener("change", (e) => {
+      if (e.target.files.length > 0) {
+        showFolderBrowser(e.target.files);
       }
     });
-    zone.addEventListener("keydown", (e) => { 
-      if (e.key === "Enter" || e.key === " ") { 
-        e.preventDefault(); 
-        folderInput.click(); 
-      } 
-    });
-    filesInput.addEventListener("change", updateSubmit);
-    folderInput.addEventListener("change", updateSubmit);
 
-    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragover"); });
-    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
-    zone.addEventListener("drop", (e) => {
-      e.preventDefault();
-      zone.classList.remove("dragover");
-      folderInput.value = "";
-      filesInput.files = e.dataTransfer.files;
-      updateSubmit();
-    });
-
-    form.addEventListener("submit", async (e) => {
-      const useFolder = folderInput.files.length > 0;
-      const fileList = useFolder ? folderInput.files : filesInput.files;
-      if (!fileList.length) { e.preventDefault(); return; }
-      e.preventDefault();
+    browserClose.addEventListener("click", hideFolderBrowser);
+    cancelBtn.addEventListener("click", hideFolderBrowser);
+    
+    confirmBtn.addEventListener("click", async () => {
+      if (selectedFiles.size === 0) return;
+      
+      hideFolderBrowser();
       submitBtn.disabled = true;
       feedback.textContent = "";
       feedback.className = "feedback";
 
       const fd = new FormData();
-      for (let i = 0; i < fileList.length; i++) {
-        const f = fileList[i];
-        // Skip files without names (shouldn't happen, but be safe)
-        if (!f.name) continue;
-        fd.append("files", f);
-        // For folder uploads, use webkitRelativePath if available, otherwise fall back to name
-        const path = useFolder && f.webkitRelativePath ? f.webkitRelativePath : f.name;
-        fd.append("paths", path);
+      
+      // Create a map of paths to files using stored FileList
+      const fileMap = new Map();
+      const fileListToUse = folderFileList || folderInput.files;
+      for (let i = 0; i < fileListToUse.length; i++) {
+        const file = fileListToUse[i];
+        const path = file.webkitRelativePath || file.name;
+        fileMap.set(path, file);
       }
+
+      // Only add selected files
+      selectedFiles.forEach(path => {
+        const file = fileMap.get(path);
+        if (file) {
+          fd.append("files", file);
+          fd.append("paths", path);
+        }
+      });
 
       try {
         const r = await fetch("{{ url_for('upload') }}", { method: "POST", body: fd });
@@ -240,6 +689,94 @@
         feedback.textContent = "Upload failed: " + err.message;
       }
       submitBtn.disabled = false;
+    });
+
+    function updateSubmit() {
+      const hasFiles = filesInput.files.length > 0;
+      submitBtn.disabled = !hasFiles;
+    }
+
+    // When clicking the zone, show a simple prompt to choose files or folder
+    zone.addEventListener("click", (e) => { 
+      if (!e.target.closest(".linkBtn")) {
+        folderInput.click();
+      }
+    });
+    zone.addEventListener("keydown", (e) => { 
+      if (e.key === "Enter" || e.key === " ") { 
+        e.preventDefault(); 
+        folderInput.click(); 
+      } 
+    });
+    filesInput.addEventListener("change", updateSubmit);
+
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragover"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.classList.remove("dragover");
+      folderInput.value = "";
+      filesInput.files = e.dataTransfer.files;
+      updateSubmit();
+    });
+
+    form.addEventListener("submit", async (e) => {
+      // Only handle file uploads here, folder uploads are handled by confirmBtn
+      if (folderInput.files.length > 0) {
+        e.preventDefault();
+        return;
+      }
+      
+      const fileList = filesInput.files;
+      if (!fileList.length) { e.preventDefault(); return; }
+      e.preventDefault();
+      submitBtn.disabled = true;
+      feedback.textContent = "";
+      feedback.className = "feedback";
+
+      const fd = new FormData();
+      for (let i = 0; i < fileList.length; i++) {
+        const f = fileList[i];
+        if (!f.name) continue;
+        fd.append("files", f);
+        fd.append("paths", f.name);
+      }
+
+      try {
+        const r = await fetch("{{ url_for('upload') }}", { method: "POST", body: fd });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok) {
+          if (data.saved && data.saved.length) {
+            feedback.className = "feedback success";
+            feedback.innerHTML = "Uploaded: <ul><li>" + data.saved.join("</li><li>") + "</li></ul>";
+          }
+          if (data.rejected && data.rejected.length) {
+            feedback.className = "feedback error";
+            feedback.innerHTML = (feedback.innerHTML || "") + "Rejected: <ul><li>" + data.rejected.join("</li><li>") + "</li></ul>";
+          }
+          if (!data.saved?.length && !data.rejected?.length) feedback.textContent = "No files uploaded.";
+          filesInput.value = "";
+          updateSubmit();
+        } else {
+          feedback.className = "feedback error";
+          if (r.status === 413) {
+            feedback.textContent = data.error || "File too large. Please try uploading smaller files or increase the server's upload limit.";
+          } else {
+            feedback.textContent = data.error || "Upload failed.";
+          }
+        }
+      } catch (err) {
+        feedback.className = "feedback error";
+        feedback.textContent = "Upload failed: " + err.message;
+      }
+      submitBtn.disabled = false;
+    });
+
+    // Close browser on Escape key
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && folderBrowser.classList.contains("active")) {
+        hideFolderBrowser();
+      }
     });
   </script>
 </body>
