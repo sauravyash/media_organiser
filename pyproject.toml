@@ -2,7 +2,7 @@
 name = "media-organiser"
 version = "0.1.0"
 description = "Offline media organiser with NFO merge-first."
-readme = "README.md"
+readme = "readme.md"
 authors = []
 packages = [{include = "media_organiser"}]
 
