@@ -56,6 +56,8 @@ _PATTERNS = [
     re.compile(r"(?i)[\.\s_\-]+(?P<season>\d{1,2})x(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]*(?P<ep2>\d{1,3}))?"),
     re.compile(r"(?i)[\.\s_\-]+S(?P<season>\d{1,2})[\.\s_\-]+(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]+(?P<ep2>\d{1,3}))?"),
     re.compile(r"(?i)[\.\s_\-]+(?P<season>\d{1,2})[\.\s_\-]*E(?P<ep1>\d{1,3})"),
+    re.compile(r"(?i)\bseason[\.\s_\-]+(?P<season>\d{1,2})[\.\s_\-]+episode[\.\s_\-]+(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]*(?P<ep2>\d{1,3}))?"),
+    re.compile(r"(?i)(?:^|[\.\s_\-]+)Ep\s+(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]*(?P<ep2>\d{1,3}))?"),
 ]
 
 def _clean_title(s: str) -> str:
@@ -63,8 +65,11 @@ def _clean_title(s: str) -> str:
     s = re.sub(r"\[.*?\]", " ", s)
     s = re.sub(r"[\._]+", " ", s)
     s = RESOLUTION_PATTERN.sub("", s)
+    # Normalize hyphens to spaces for series names (e.g., "young-sheldon" -> "young sheldon")
+    s = re.sub(r"-+", " ", s)
     s = re.sub(r"\s{2,}", " ", s).strip(" .-_")
-    return s
+    # Normalize case using titlecase_soft for consistent capitalization
+    return titlecase_soft(s) if s else s
 
 def find_separator(text: str) -> str | None:
     """
@@ -84,25 +89,71 @@ def find_separator(text: str) -> str | None:
     # Return the separator if found
     return most_common_sep if count > 0 else None
 
-def is_tv_episode(filename: str) -> tuple[bool, dict]:
+def is_tv_episode(filename: str, path: Optional[Path] = None) -> tuple[bool, dict]:
     """
     Returns (True, {"series": str, "season": int, "ep1": int, "ep2": Optional[int]})
     by finding the RIGHTMOST valid episode token and using the prefix as the series.
+    
+    For "Ep XX" patterns without season info, tries to extract season from parent directory.
     """
     stem = Path(filename).stem
     best = None
     best_pos = -1
-    for pat in _PATTERNS:
+    best_pattern_idx = -1
+    for idx, pat in enumerate(_PATTERNS):
         for m in pat.finditer(stem):
             if m.start() > best_pos:
-                best, best_pos = m, m.start()
+                best, best_pos, best_pattern_idx = m, m.start(), idx
     if not best:
         return False, {}
+    
     series_raw = stem[:best.start()]
     series_raw = re.sub(r"[\.\s_\-]+$", "", series_raw)  # trim trailing separators
     series = _clean_title(series_raw)
     gd = best.groupdict()
-    season = int(gd["season"])
+    
+    # Handle "Ep XX" pattern (no season in pattern)
+    if "season" not in gd or gd["season"] is None:
+        season = None
+        # Try to extract season from parent directory
+        if path is None:
+            path = Path(filename)
+        parent_name = path.parent.name if path.parent else ""
+        # Look for "Season X", "SXX", "Season XX" patterns in parent directory
+        season_match = re.search(r"(?i)(?:season\s*)?S?(?P<season>\d{1,2})", parent_name)
+        if season_match:
+            season = int(season_match.group("season"))
+        else:
+            # Try to extract from series name if it contains season info
+            series_season_match = re.search(r"(?i)\bS(?P<season>\d{1,2})\b", series_raw)
+            if series_season_match:
+                season = int(series_season_match.group("season"))
+        
+        if season is None:
+            # Default to season 1 if we can't find it
+            season = 1
+        
+        # If series is empty (Ep at start), try to extract from parent directory
+        if not series and path and path.parent:
+            # Try parent directory name, removing season/quality info
+            parent_series = parent_name
+            # Remove season patterns (S01, Season 1, etc.)
+            parent_series = re.sub(r"(?i)\s*S\d{1,2}\s*", " ", parent_series)
+            parent_series = re.sub(r"(?i)\s*Season\s*\d{1,2}\s*", " ", parent_series)
+            # Remove quality/resolution patterns
+            parent_series = re.sub(r"(?i)\s*\d+p\s*", " ", parent_series)
+            parent_series = re.sub(r"(?i)\s*Complete\s*", " ", parent_series)
+            # Remove language/codec info (ENG-ITA, x264, etc.)
+            parent_series = re.sub(r"(?i)\s*(?:ENG|ITA|ENG-ITA|x264|x265|BluRay|Blu-Ray)\s*", " ", parent_series)
+            # Remove release group patterns (everything after last dash if it looks like a release group)
+            parent_series = re.sub(r"\s*-\s*[A-Z][a-z]+.*$", "", parent_series)
+            # Clean up
+            parent_series = re.sub(r"[\.\s_\-]+", " ", parent_series).strip()
+            if parent_series:
+                series = _clean_title(parent_series)
+    else:
+        season = int(gd["season"])
+    
     ep1 = int(gd["ep1"])
     ep2 = int(gd["ep2"]) if gd.get("ep2") else None
     return True, {"series": series, "season": season, "ep1": ep1, "ep2": ep2}

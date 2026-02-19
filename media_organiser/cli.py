@@ -46,6 +46,9 @@ def main():
     aspect_lo, aspect_hi = parse_range_pair(args.poster_aspect, "-", float)
     bad_words = [w.strip().lower() for w in args.poster_keywords.split(",") if w.strip()]
 
+    # Track files being processed in this batch to detect duplicates
+    tv_episodes_processing = {}  # (series, season, episode) -> list of paths
+
     items = list(src_root.rglob("*"))
     for path in items:
         if not path.is_file(): continue
@@ -65,7 +68,7 @@ def main():
         if re.search(r"(?i)\bsample\b", path.name): continue
 
         quality = detect_quality(path.name)
-        is_tv, info = is_tv_episode(path.name)
+        is_tv, info = is_tv_episode(path.name, path)
 
         if is_tv:
             series = _clean_title(info["series"])
@@ -79,13 +82,22 @@ def main():
             season_dir.mkdir(parents=True, exist_ok=True)
             out_file = season_dir / f"{series} - {ep_tag} ({quality}){path.suffix.lower()}"
 
+            # Check for duplicates in the same batch
+            episode_key = (series.lower(), s_no, e_no)
+            if episode_key in tv_episodes_processing:
+                existing_paths = tv_episodes_processing[episode_key]
+                print(f"[WARNING] Potential duplicate in batch: {path} (same episode as {existing_paths})")
+                tv_episodes_processing[episode_key].append(path)
+            else:
+                tv_episodes_processing[episode_key] = [path]
+
             if args.dupe_mode != "off":  # noqa
                 dup = is_duplicate_in_dir(path, season_dir, args.dupe_mode)
                 if dup:
                     print(f"SKIP DUPLICATE: {path} == {dup} [{args.dupe_mode}]")
                     continue
 
-            do_move_or_copy(path, out_file, args.mode, args.dry_run)
+            do_move_or_copy(path, out_file, args.mode, args.dry_run, quality)
             subs = copy_move_sidecars(path, out_file, do_move_or_copy, args.mode, args.dry_run)
 
             if args.emit_nfo in ("tv","all") and not args.dry_run:
@@ -136,7 +148,7 @@ def main():
                     print(f"SKIP DUPLICATE: {path} == {dup} [{args.dupe_mode}]")
                     continue
 
-            do_move_or_copy(path, out_file, args.mode, args.dry_run)
+            do_move_or_copy(path, out_file, args.mode, args.dry_run, quality)
             subs = copy_move_sidecars(path, out_file, do_move_or_copy, args.mode, args.dry_run)
 
             # optional: carry posters through sieve

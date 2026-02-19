@@ -213,3 +213,114 @@ def test_titlecase_soft_capitalizes_lowercase_hyphenated():
     
     result2 = titlecase_soft("some-movie-title")
     assert result2 == "Some-Movie-Title"
+
+
+def test_tv_pattern_ep_xx_at_start():
+    """Test 'Ep XX' pattern recognition when Ep appears at start of filename."""
+    from pathlib import Path
+    # Simulate Breaking Bad episode file
+    filename = "Ep 07 - A No-Rough-Stuff-Type Deal - Vendetta.mkv"
+    parent_dir = Path("/Breaking Bad S01 Complete - 1080p ENG-ITA x264 BluRay -Shiv")
+    path = parent_dir / filename
+    
+    ok, info = is_tv_episode(filename, path)
+    assert ok, "Ep XX pattern should be recognized"
+    assert info["ep1"] == 7
+    assert info["season"] == 1, "Season should be extracted from parent directory"
+    assert info["series"] == "Breaking Bad", "Series should be extracted from parent directory"
+
+
+def test_tv_pattern_ep_xx_with_season_in_parent():
+    """Test 'Ep XX' pattern with season extraction from parent directory."""
+    from pathlib import Path
+    filename = "Ep 01 - Pilot.mkv"
+    parent_dir = Path("/Some Show Season 2")
+    path = parent_dir / filename
+    
+    ok, info = is_tv_episode(filename, path)
+    assert ok
+    assert info["ep1"] == 1
+    assert info["season"] == 2, "Should extract season 2 from parent directory"
+
+
+def test_tv_pattern_season_x_episode_y():
+    """Test 'season-X-episode-Y' pattern recognition."""
+    from pathlib import Path
+    filename = "young-sheldon-season-5-episode-5-stuffed-animals.mp4"
+    path = Path("/Young Sheldon/Season 5") / filename
+    
+    ok, info = is_tv_episode(filename, path)
+    assert ok, "season-X-episode-Y pattern should be recognized"
+    assert info["season"] == 5
+    assert info["ep1"] == 5
+    assert info["series"] == "Young Sheldon", "Hyphens should be normalized to spaces"
+
+
+def test_tv_pattern_hyphen_normalization():
+    """Test that hyphens in series names are normalized to spaces."""
+    from pathlib import Path
+    # Test with hyphenated filename
+    filename = "young-sheldon-season-3-episode-10.mp4"
+    path = Path("/Young Sheldon/Season 3") / filename
+    
+    ok, info = is_tv_episode(filename, path)
+    assert ok
+    assert info["series"] == "Young Sheldon", "Hyphens should be normalized to spaces, not 'Young-Sheldon'"
+    
+    # Test with space-separated filename (should also work)
+    filename2 = "Young Sheldon S03E10.mp4"
+    ok2, info2 = is_tv_episode(filename2, path)
+    assert ok2
+    assert info2["series"] == "Young Sheldon", "Should be consistent with hyphenated version"
+
+
+def test_tv_pattern_case_normalization():
+    """Test that series names are normalized to consistent case."""
+    from pathlib import Path
+    # Test lowercase series name
+    filename1 = "lucifer.s04e01.web.x264-strife.mkv"
+    path1 = Path("/Lucifer/Season 4") / filename1
+    
+    ok1, info1 = is_tv_episode(filename1, path1)
+    assert ok1
+    assert info1["series"] == "Lucifer", "Lowercase 'lucifer' should be normalized to 'Lucifer'"
+    
+    # Test mixed case
+    filename2 = "LuCiFeR.S04E02.mkv"
+    ok2, info2 = is_tv_episode(filename2, path1)
+    assert ok2
+    assert info2["series"] == "Lucifer", "Mixed case should be normalized to 'Lucifer'"
+    
+    # Both should create same series name
+    assert info1["series"] == info2["series"], "Case normalization should be consistent"
+
+
+def test_tv_pattern_ep_xx_series_extraction_from_parent():
+    """Test series name extraction from parent when Ep is at start of filename."""
+    from pathlib import Path
+    filename = "Ep 05 - Gray Matter.mkv"
+    # Parent directory with quality/resolution/language info that should be cleaned
+    parent_dir = Path("/Breaking Bad S01 Complete - 1080p ENG-ITA x264 BluRay -Shiv")
+    path = parent_dir / filename
+    
+    ok, info = is_tv_episode(filename, path)
+    assert ok
+    assert info["series"] == "Breaking Bad", "Should extract clean series name from parent, removing quality/resolution/language info"
+    assert "1080p" not in info["series"]
+    assert "ENG-ITA" not in info["series"]
+    assert "x264" not in info["series"]
+    assert "BluRay" not in info["series"]
+    assert "Shiv" not in info["series"]
+
+
+def test_tv_pattern_ep_xx_defaults_to_season_1():
+    """Test that Ep XX pattern defaults to season 1 if no season found."""
+    from pathlib import Path
+    filename = "Ep 10 - Final Episode.mkv"
+    parent_dir = Path("/Some Show")  # No season info
+    path = parent_dir / filename
+    
+    ok, info = is_tv_episode(filename, path)
+    assert ok
+    assert info["season"] == 1, "Should default to season 1 if no season info found"
+    assert info["ep1"] == 10

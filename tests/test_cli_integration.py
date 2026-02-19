@@ -379,6 +379,106 @@ def test_tv_nfo_merges_src_dest_and_subtitles(tmp_path, monkeypatch):
 
 
 
+def test_tv_ep_xx_pattern_recognized_and_organized(tmp_path):
+    """
+    Test that 'Ep XX' pattern files are recognized as TV episodes and organized correctly.
+    This tests the fix for Breaking Bad episodes that were previously misclassified as movies.
+    """
+    src = tmp_path / "in"
+    dst = tmp_path / "out"
+    src.mkdir()
+    
+    # Simulate Breaking Bad episode structure
+    breaking_bad_dir = src / "Breaking bad" / "Breaking Bad S01 Complete - 1080p ENG-ITA x264 BluRay -Shiv"
+    breaking_bad_dir.mkdir(parents=True)
+    
+    # Create episode files with "Ep XX" pattern
+    ep1 = breaking_bad_dir / "Ep 01 - Pilot - Questione di Chimica.mkv"
+    ep7 = breaking_bad_dir / "Ep 07 - A No-Rough-Stuff-Type Deal - Vendetta.mkv"
+    ep1.write_bytes(b"X" * 4096)
+    ep7.write_bytes(b"Y" * 4096)
+    
+    run_cli_in_proc(src, dst, ["--mode", "copy", "--emit-nfo", "tv", "--dupe-mode", "off"])
+    
+    # Assert: Episodes should go to TV directory, not movies
+    tv_dir = dst / "tv" / "Breaking Bad" / "Season 01"
+    out_ep1 = tv_dir / "Breaking Bad - S01E01 (Other).mkv"
+    out_ep7 = tv_dir / "Breaking Bad - S01E07 (Other).mkv"
+    
+    assert tv_dir.exists(), "TV directory should be created"
+    assert out_ep1.exists(), "Ep 01 should be recognized as TV episode and copied"
+    assert out_ep7.exists(), "Ep 07 should be recognized as TV episode and copied"
+    
+    # Verify they're NOT in movies directory
+    movies_dir = dst / "movies"
+    if movies_dir.exists():
+        breaking_bad_movies = list(movies_dir.glob("*Breaking Bad*"))
+        assert len(breaking_bad_movies) == 0, "Breaking Bad episodes should not be in movies directory"
+
+
+def test_tv_season_x_episode_y_pattern_recognized(tmp_path):
+    """
+    Test that 'season-X-episode-Y' pattern files are recognized as TV episodes.
+    This tests the fix for Young Sheldon episodes.
+    """
+    src = tmp_path / "in"
+    dst = tmp_path / "out"
+    src.mkdir()
+    
+    # Simulate Young Sheldon episode structure
+    young_sheldon_dir = src / "Young Sheldon" / "Season 5"
+    young_sheldon_dir.mkdir(parents=True)
+    
+    # Create episode file with "season-X-episode-Y" pattern
+    ep5 = young_sheldon_dir / "young-sheldon-season-5-episode-5-stuffed-animals.mp4"
+    ep5.write_bytes(b"Z" * 4096)
+    
+    run_cli_in_proc(src, dst, ["--mode", "copy", "--emit-nfo", "tv", "--dupe-mode", "off"])
+    
+    # Assert: Episode should go to TV directory with normalized series name
+    tv_dir = dst / "tv" / "Young Sheldon" / "Season 05"
+    out_ep5 = tv_dir / "Young Sheldon - S05E05 (Other).mp4"
+    
+    assert tv_dir.exists(), "TV directory should be created"
+    assert out_ep5.exists(), "season-5-episode-5 should be recognized as TV episode"
+    # Verify series name uses spaces, not hyphens
+    assert (dst / "tv" / "Young Sheldon").exists(), "Series folder should be 'Young Sheldon' not 'Young-Sheldon'"
+
+
+def test_tv_case_normalization_creates_single_folder(tmp_path):
+    """
+    Test that case variations in series names create a single normalized folder.
+    This tests the fix for lucifer vs Lucifer creating separate folders.
+    """
+    src = tmp_path / "in"
+    dst = tmp_path / "out"
+    src.mkdir()
+    
+    # Create episodes with different case variations
+    season_dir = src / "Lucifer" / "Season 4"
+    season_dir.mkdir(parents=True)
+    
+    ep1_lower = season_dir / "lucifer.s04e01.web.x264-strife.mkv"
+    ep2_upper = season_dir / "Lucifer.S04E02.mkv"
+    ep1_lower.write_bytes(b"A" * 4096)
+    ep2_upper.write_bytes(b"B" * 4096)
+    
+    run_cli_in_proc(src, dst, ["--mode", "copy", "--emit-nfo", "tv", "--dupe-mode", "off"])
+    
+    # Assert: Both episodes should go to the same normalized folder
+    tv_dir = dst / "tv" / "Lucifer" / "Season 04"
+    out_ep1 = tv_dir / "Lucifer - S04E01 (Other).mkv"
+    out_ep2 = tv_dir / "Lucifer - S04E02 (Other).mkv"
+    
+    assert tv_dir.exists(), "TV directory should be created"
+    assert out_ep1.exists(), "Lowercase 'lucifer' should be normalized to 'Lucifer'"
+    assert out_ep2.exists(), "Uppercase 'Lucifer' should be normalized to 'Lucifer'"
+    
+    # Verify only one Lucifer folder exists (not lucifer and Lucifer)
+    lucifer_folders = list((dst / "tv").glob("*ucifer*"))
+    assert len(lucifer_folders) == 1, f"Should have only one Lucifer folder, found: {lucifer_folders}"
+
+
 def test_carry_posters_called_in_movie_flow(tmp_path, monkeypatch):
     """
     Covers:
