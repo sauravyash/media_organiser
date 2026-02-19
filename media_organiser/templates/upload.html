@@ -380,7 +380,6 @@
       <span class="prompt"><strong>Drop files here</strong> or <button type="button" class="linkBtn" id="pickFolder">choose folder</button> / <button type="button" class="linkBtn" id="pickFiles">choose files</button></span>
       <span class="exts">All file types • Folder upload preserves structure (NFO, subtitles, images)</span>
     </div>
-    <button type="submit" class="btn" id="submitBtn" disabled>Upload</button>
   </form>
 
   <div class="feedback" id="feedback" aria-live="polite"></div>
@@ -417,7 +416,7 @@
     const zone = document.getElementById("zone");
     const filesInput = document.getElementById("files");
     const folderInput = document.getElementById("folder");
-    const submitBtn = document.getElementById("submitBtn");
+    const submitBtn = document.getElementById("submitBtn"); // May be null if button removed
     const feedback = document.getElementById("feedback");
     const form = document.getElementById("form");
     const folderBrowser = document.getElementById("folderBrowser");
@@ -437,6 +436,17 @@
     let selectedFiles = new Set();
     let folderFileList = null; // Store the original FileList
     let currentUploadXHR = null; // Track current upload for cancellation
+
+    // Check if a file or folder name is hidden (starts with .)
+    function isHidden(name) {
+      const parts = name.split('/');
+      return parts.some(part => part.startsWith('.'));
+    }
+
+    // Check if a path is a macOS extended attribute file (contains ::EA:: or ::EA)
+    function isExtendedAttribute(path) {
+      return path.includes('::EA::') || path.includes('::EA');
+    }
 
     // Build tree structure from FileList
     function buildFileTree(fileList) {
@@ -523,6 +533,24 @@
 
       renderBreadcrumb();
 
+      // Cleanup: Remove all hidden files from selectedFiles before rendering
+      // This ensures hidden files are never selected by default
+      function removeHiddenFilesFromSelection(node) {
+        if (!node) return;
+        Object.keys(node).forEach(childName => {
+          const child = node[childName];
+          if (child.type === 'file' && isHidden(childName)) {
+            selectedFiles.delete(child.path);
+          } else if (child.type === 'folder' && child.children) {
+            removeHiddenFilesFromSelection(child.children);
+          }
+        });
+      }
+      // Remove hidden files from the entire tree
+      if (folderTree) {
+        removeHiddenFilesFromSelection(folderTree);
+      }
+
       const items = Object.keys(current).sort((a, b) => {
         const aIsFolder = current[a].type === 'folder';
         const bIsFolder = current[b].type === 'folder';
@@ -544,12 +572,26 @@
 
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
-        checkbox.checked = true; // Checked by default
         const itemId = item.path || (currentPath.length > 0 ? currentPath.join('/') + '/' + name : name);
         checkbox.id = `file-${itemId}`;
         
+        // Check if this item is hidden
+        const hidden = isHidden(name);
+        
         if (item.type === 'file') {
-          selectedFiles.add(item.path);
+          // Always ensure hidden files are NOT selected
+          if (hidden) {
+            selectedFiles.delete(item.path);
+            checkbox.checked = false;
+          } else {
+            // For non-hidden files, check if they should be selected
+            // They should be selected if they're already in selectedFiles (from showFolderBrowser or selectAllFilesInFolder)
+            checkbox.checked = selectedFiles.has(item.path);
+            // Ensure they're in selectedFiles if checked
+            if (checkbox.checked) {
+              selectedFiles.add(item.path);
+            }
+          }
           checkbox.onchange = (e) => {
             if (e.target.checked) {
               selectedFiles.add(item.path);
@@ -559,22 +601,55 @@
             updateSelectedCount();
           };
         } else {
-          // For folders, select/deselect all children
-          // First, select all files in this folder by default
+          // For folders, recursively select/deselect all non-hidden children
+          // IMPORTANT: This runs BEFORE individual file checkboxes are created,
+          // so we need to ensure hidden files are excluded here
           function selectAllFilesInFolder(folderNode) {
             if (!folderNode || !folderNode.children) return;
             Object.keys(folderNode.children).forEach(childName => {
               const child = folderNode.children[childName];
               if (child.type === 'file') {
-                selectedFiles.add(child.path);
+                // Always remove hidden files first, then only add non-hidden files
+                if (isHidden(childName)) {
+                  selectedFiles.delete(child.path);
+                } else {
+                  selectedFiles.add(child.path);
+                }
               } else if (child.type === 'folder') {
-                selectAllFilesInFolder(child);
+                // Skip hidden folders - don't select files inside them
+                if (!isHidden(childName)) {
+                  selectAllFilesInFolder(child);
+                }
               }
             });
           }
+          // Only call this if we want to select files in this folder
+          // Since we're initializing, we want to select non-hidden files
           selectAllFilesInFolder(item);
           
+          // Check if folder should be checked (has any selected non-hidden children)
+          // IMPORTANT: Hidden folders should always be unchecked
+          function hasSelectedChildren(folderNode) {
+            if (!folderNode || !folderNode.children) return false;
+            for (const childName of Object.keys(folderNode.children)) {
+              const child = folderNode.children[childName];
+              if (child.type === 'file' && !isHidden(childName) && selectedFiles.has(child.path)) {
+                return true;
+              } else if (child.type === 'folder' && !isHidden(childName) && hasSelectedChildren(child)) {
+                return true;
+              }
+            }
+            return false;
+          }
+          // Hidden folders should always be unchecked
+          checkbox.checked = hidden ? false : hasSelectedChildren(item);
+          
           checkbox.onchange = (e) => {
+            // Don't allow hidden folders to be checked
+            if (hidden) {
+              checkbox.checked = false;
+              return;
+            }
             toggleFolderSelection(item, e.target.checked);
             updateSelectedCount();
           };
@@ -629,17 +704,29 @@
           const child = node.children[name];
           if (child.type === 'file') {
             if (checked) {
-              selectedFiles.add(child.path);
+              // When checking, only add non-hidden files
+              if (!isHidden(name)) {
+                selectedFiles.add(child.path);
+              }
             } else {
+              // When unchecking, remove all files
               selectedFiles.delete(child.path);
             }
             // Update checkbox if it exists
             const checkbox = document.getElementById(`file-${child.path}`);
             if (checkbox) {
-              checkbox.checked = checked;
+              checkbox.checked = checked && !isHidden(name);
             }
           } else if (child.type === 'folder') {
-            traverse(child);
+            // Skip hidden folders - don't traverse into them or select their contents
+            if (!isHidden(name)) {
+              traverse(child);
+              // Update folder checkbox if it exists
+              const folderCheckbox = document.getElementById(`file-${child.path || name}`);
+              if (folderCheckbox) {
+                folderCheckbox.checked = checked;
+              }
+            }
           }
         });
       }
@@ -655,6 +742,9 @@
 
     // Show folder browser
     function showFolderBrowser(fileList) {
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/748ea684-e073-4f05-a7f9-757a7041c34a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'upload.html:722',message:'showFolderBrowser called',data:{fileListLength:fileList?fileList.length:0,folderBrowserActiveBefore:folderBrowser.classList.contains('active')},timestamp:Date.now(),runId:'debug1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       if (!fileList || fileList.length === 0) {
         return;
       }
@@ -664,20 +754,30 @@
       currentPath = [];
       selectedFiles.clear();
       
-      // Select all files by default
+      // Select all non-hidden files by default
       for (let i = 0; i < fileList.length; i++) {
         const file = fileList[i];
         const path = file.webkitRelativePath || file.name;
-        selectedFiles.add(path);
+        // Only add non-hidden files (files whose name or any path component starts with .)
+        if (!isHidden(path)) {
+          selectedFiles.add(path);
+        }
       }
       
       renderFolder();
       folderBrowser.classList.add('active');
-      confirmBtn.disabled = false; // Enable by default since files are checked
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/748ea684-e073-4f05-a7f9-757a7041c34a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'upload.html:743',message:'showFolderBrowser after adding active class',data:{folderBrowserActive:folderBrowser.classList.contains('active')},timestamp:Date.now(),runId:'debug1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
+      // Enable button if there are selected files
+      confirmBtn.disabled = selectedFiles.size === 0;
     }
 
     // Hide folder browser
     function hideFolderBrowser() {
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/748ea684-e073-4f05-a7f9-757a7041c34a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'upload.html:749',message:'hideFolderBrowser called',data:{folderBrowserActiveBefore:folderBrowser.classList.contains('active'),folderInputValueBefore:folderInput.value,folderInputFilesLengthBefore:folderInput.files.length},timestamp:Date.now(),runId:'debug1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       if (currentUploadXHR) {
         currentUploadXHR.abort();
         currentUploadXHR = null;
@@ -689,6 +789,9 @@
       selectedFiles.clear();
       folderFileList = null;
       folderInput.value = '';
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/748ea684-e073-4f05-a7f9-757a7041c34a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'upload.html:760',message:'hideFolderBrowser after clearing',data:{folderBrowserActive:folderBrowser.classList.contains('active'),folderInputValue:folderInput.value,folderInputFilesLength:folderInput.files.length},timestamp:Date.now(),runId:'debug1',hypothesisId:'D'})}).catch(()=>{});
+      // #endregion
       confirmBtn.disabled = false;
       cancelBtn.disabled = false;
     }
@@ -701,12 +804,18 @@
     });
     
     document.getElementById("pickFolder").addEventListener("click", (e) => { 
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/748ea684-e073-4f05-a7f9-757a7041c34a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'upload.html:772',message:'pickFolder clicked',data:{folderBrowserActive:folderBrowser.classList.contains('active'),folderInputValue:folderInput.value,folderInputFilesLength:folderInput.files.length},timestamp:Date.now(),runId:'debug1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       e.stopPropagation(); 
       filesInput.value = ""; 
       folderInput.click(); 
     });
 
     folderInput.addEventListener("change", (e) => {
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/748ea684-e073-4f05-a7f9-757a7041c34a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'upload.html:778',message:'folderInput change event',data:{filesLength:e.target.files.length,folderBrowserActive:folderBrowser.classList.contains('active'),folderInputValue:folderInput.value},timestamp:Date.now(),runId:'debug1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       if (e.target.files.length > 0) {
         showFolderBrowser(e.target.files);
       }
@@ -739,7 +848,7 @@
       // Disable buttons during upload
       confirmBtn.disabled = true;
       cancelBtn.disabled = true;
-      submitBtn.disabled = true;
+      if (submitBtn) submitBtn.disabled = true;
       feedback.textContent = "";
       feedback.className = "feedback";
 
@@ -751,7 +860,8 @@
         const file = fileListToUse[i];
         const path = file.webkitRelativePath || file.name;
         fileMap.set(path, file);
-        if (selectedFiles.has(path)) {
+        // Only include files that are selected AND not extended attribute files
+        if (selectedFiles.has(path) && !isExtendedAttribute(path)) {
           selectedFileArray.push({ file, path });
         }
       }
@@ -769,7 +879,28 @@
       let uploadedBytes = 0;
       const allSaved = [];
       const allRejected = [];
+      const allUnselected = [];
       let uploadCancelled = false;
+      
+      // Track unselected files (files in folder but not selected)
+      // Also track which files were actually sent to backend for proper rejection tracking
+      const filesActuallySent = new Set();
+      const allFilesInFolder = new Set();
+      for (let i = 0; i < fileListToUse.length; i++) {
+        const file = fileListToUse[i];
+        const path = file.webkitRelativePath || file.name;
+        allFilesInFolder.add(path);
+      }
+      // Unselected files are those in folder but not in selectedFiles (excluding extended attributes)
+      allFilesInFolder.forEach(path => {
+        if (!selectedFiles.has(path) && !isExtendedAttribute(path)) {
+          allUnselected.push(path);
+        }
+      });
+      // Track which files we're actually sending
+      selectedFileArray.forEach(({ path }) => {
+        filesActuallySent.add(path);
+      });
 
       // Upload files sequentially, one at a time
       for (let i = 0; i < selectedFileArray.length; i++) {
@@ -818,24 +949,84 @@
                 try {
                   const data = JSON.parse(xhr.responseText);
                   
-                  if (data.saved && data.saved.length) {
-                    allSaved.push(...data.saved);
+                  // Track which files were saved to avoid adding them to rejected
+                  const savedPaths = new Set();
+                  const savedBasePaths = new Set(); // Track base paths for better matching
+                  
+                  // Since we upload one file at a time, process the response for this specific file
+                  // IMPORTANT: Process saved files first, then rejected files
+                  if (data.saved && data.saved.length > 0) {
+                    // Add all saved files (filter out extended attributes)
+                    data.saved.forEach(savedPath => {
+                      if (!isExtendedAttribute(savedPath)) {
+                        allSaved.push(savedPath);
+                        // Normalize path for comparison (remove any error suffixes and duplicate markers)
+                        const normalized = savedPath.split(' (error:')[0].split(' (Network error)')[0].split(' (Upload error)')[0];
+                        savedPaths.add(normalized);
+                        // Also track the base filename for matching (in case backend renamed due to duplicates)
+                        const baseName = normalized.split('/').pop();
+                        savedBasePaths.add(baseName);
+                      }
+                    });
+                    // Also track the original path we sent (only if we actually saved something)
+                    // This handles cases where backend might return a slightly different path
+                    savedPaths.add(path);
+                    const originalBaseName = path.split('/').pop();
+                    savedBasePaths.add(originalBaseName);
                   }
-                  if (data.rejected && data.rejected.length) {
-                    allRejected.push(...data.rejected);
+                  
+                  // Only process rejected files if they weren't already saved
+                  // This prevents files from appearing in both saved and rejected
+                  // IMPORTANT: Since we upload one file at a time, if we got saved files,
+                  // the current file was saved, so ignore any rejected entries for it
+                  if (data.rejected && data.rejected.length > 0) {
+                    // If we have saved files, the current file was saved - skip processing rejected
+                    const currentFileWasSaved = data.saved && data.saved.length > 0;
+                    
+                    if (!currentFileWasSaved) {
+                      // Only process rejected if we didn't save anything
+                      data.rejected.forEach(rejectedPath => {
+                        // Extract the base path (remove error messages)
+                        const basePath = rejectedPath.split(' (error:')[0].split(' (Network error)')[0].split(' (Upload error)')[0];
+                        
+                        // Skip extended attribute files entirely - they should never be in rejected
+                        if (isExtendedAttribute(basePath)) {
+                          return;
+                        }
+                        
+                        // Check if this rejected path matches the file we just sent
+                        // Only process files that we actually sent to the backend
+                        const matchesCurrentFile = basePath === path || filesActuallySent.has(basePath);
+                        
+                        if (matchesCurrentFile) {
+                          // This file was rejected
+                          allRejected.push(rejectedPath);
+                        }
+                      });
+                    }
+                    // If currentFileWasSaved is true, we skip all rejected entries for this upload
                   }
                   
                   resolve();
                 } catch (err) {
-                  allRejected.push(path);
+                  // If parsing fails, mark current file as rejected (if not extended attribute)
+                  if (!isExtendedAttribute(path)) {
+                    allRejected.push(path);
+                  }
                   resolve(); // Continue with next file even if parsing fails
                 }
               } else {
                 try {
                   const data = JSON.parse(xhr.responseText);
-                  allRejected.push(path + (data.error ? ` (${data.error})` : ''));
+                  // HTTP error - mark current file as rejected (if not extended attribute)
+                  if (!isExtendedAttribute(path)) {
+                    allRejected.push(path + (data.error ? ` (${data.error})` : ''));
+                  }
                 } catch (err) {
-                  allRejected.push(path);
+                  // Parsing error - mark current file as rejected (if not extended attribute)
+                  if (!isExtendedAttribute(path)) {
+                    allRejected.push(path);
+                  }
                 }
                 resolve(); // Continue with next file even on error
               }
@@ -851,7 +1042,10 @@
               progressBarFill.style.width = percentComplete + "%";
               progressStatus.textContent = percentComplete + "%";
               
-              allRejected.push(path + " (Network error)");
+              // Only add to rejected if not an extended attribute file
+              if (!isExtendedAttribute(path)) {
+                allRejected.push(path + " (Network error)");
+              }
               resolve(); // Continue with next file
             });
 
@@ -874,7 +1068,10 @@
           const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
           progressBarFill.style.width = percentComplete + "%";
           progressStatus.textContent = percentComplete + "%";
-          allRejected.push(path + " (Upload error)");
+          // Only add to rejected if not an extended attribute file
+          if (!isExtendedAttribute(path)) {
+            allRejected.push(path + " (Upload error)");
+          }
         }
       }
 
@@ -892,15 +1089,31 @@
         feedback.className = "feedback";
         feedback.textContent = "Upload cancelled.";
       } else {
+        let feedbackHTML = "";
+        
+        // Accepted files
         if (allSaved.length > 0) {
           feedback.className = "feedback success";
-          feedback.innerHTML = `Uploaded ${allSaved.length} file${allSaved.length !== 1 ? 's' : ''}: <ul><li>` + allSaved.join("</li><li>") + "</li></ul>";
+          feedbackHTML += `Accepted ${allSaved.length} file${allSaved.length !== 1 ? 's' : ''}: <ul><li>` + allSaved.join("</li><li>") + "</li></ul>";
         }
+        
+        // Unselected files
+        if (allUnselected.length > 0) {
+          feedback.className = feedback.className || "feedback";
+          if (feedbackHTML) feedbackHTML += "<br>";
+          feedbackHTML += `Unselected ${allUnselected.length} file${allUnselected.length !== 1 ? 's' : ''}: <ul><li>` + allUnselected.join("</li><li>") + "</li></ul>";
+        }
+        
+        // Rejected files (only files that were selected but failed)
         if (allRejected.length > 0) {
           feedback.className = feedback.className || "feedback error";
-          feedback.innerHTML = (feedback.innerHTML || "") + `<br>Rejected ${allRejected.length} file${allRejected.length !== 1 ? 's' : ''}: <ul><li>` + allRejected.join("</li><li>") + "</li></ul>";
+          if (feedbackHTML) feedbackHTML += "<br>";
+          feedbackHTML += `Rejected ${allRejected.length} file${allRejected.length !== 1 ? 's' : ''}: <ul><li>` + allRejected.join("</li><li>") + "</li></ul>";
         }
-        if (allSaved.length === 0 && allRejected.length === 0) {
+        
+        if (feedbackHTML) {
+          feedback.innerHTML = feedbackHTML;
+        } else {
           feedback.textContent = "No files uploaded.";
         }
       }
@@ -911,17 +1124,21 @@
       updateSubmit();
       confirmBtn.disabled = false;
       cancelBtn.disabled = false;
-      submitBtn.disabled = false;
+      if (submitBtn) submitBtn.disabled = false;
     });
 
     function updateSubmit() {
-      const hasFiles = filesInput.files.length > 0;
-      submitBtn.disabled = !hasFiles;
+      // Function kept for compatibility but button removed
+      // const hasFiles = filesInput.files.length > 0;
+      // if (submitBtn) submitBtn.disabled = !hasFiles;
     }
 
     // When clicking the zone, show a simple prompt to choose files or folder
     zone.addEventListener("click", (e) => { 
       if (!e.target.closest(".linkBtn")) {
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/748ea684-e073-4f05-a7f9-757a7041c34a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'upload.html:992',message:'zone clicked - calling folderInput.click',data:{folderBrowserActive:folderBrowser.classList.contains('active'),folderInputValue:folderInput.value},timestamp:Date.now(),runId:'debug1',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
         folderInput.click();
       }
     });
@@ -960,7 +1177,7 @@
       progressStatus.textContent = "0%";
       progressDetails.textContent = "Preparing upload...";
       
-      submitBtn.disabled = true;
+      if (submitBtn) submitBtn.disabled = true;
       feedback.textContent = "";
       feedback.className = "feedback";
 
@@ -984,6 +1201,7 @@
       let uploadedBytes = 0;
       const allSaved = [];
       const allRejected = [];
+      const allUnselected = []; // Not applicable for regular file uploads, but keep for consistency
       let uploadCancelled = false;
 
       // Upload files sequentially, one at a time
@@ -1104,22 +1322,38 @@
         feedback.className = "feedback";
         feedback.textContent = "Upload cancelled.";
       } else {
+        let feedbackHTML = "";
+        
+        // Accepted files
         if (allSaved.length > 0) {
           feedback.className = "feedback success";
-          feedback.innerHTML = `Uploaded ${allSaved.length} file${allSaved.length !== 1 ? 's' : ''}: <ul><li>` + allSaved.join("</li><li>") + "</li></ul>";
+          feedbackHTML += `Accepted ${allSaved.length} file${allSaved.length !== 1 ? 's' : ''}: <ul><li>` + allSaved.join("</li><li>") + "</li></ul>";
         }
+        
+        // Unselected files (not applicable for regular file uploads, but keep structure consistent)
+        if (allUnselected.length > 0) {
+          feedback.className = feedback.className || "feedback";
+          if (feedbackHTML) feedbackHTML += "<br>";
+          feedbackHTML += `Unselected ${allUnselected.length} file${allUnselected.length !== 1 ? 's' : ''}: <ul><li>` + allUnselected.join("</li><li>") + "</li></ul>";
+        }
+        
+        // Rejected files (only files that were selected but failed)
         if (allRejected.length > 0) {
           feedback.className = feedback.className || "feedback error";
-          feedback.innerHTML = (feedback.innerHTML || "") + `<br>Rejected ${allRejected.length} file${allRejected.length !== 1 ? 's' : ''}: <ul><li>` + allRejected.join("</li><li>") + "</li></ul>";
+          if (feedbackHTML) feedbackHTML += "<br>";
+          feedbackHTML += `Rejected ${allRejected.length} file${allRejected.length !== 1 ? 's' : ''}: <ul><li>` + allRejected.join("</li><li>") + "</li></ul>";
         }
-        if (allSaved.length === 0 && allRejected.length === 0) {
+        
+        if (feedbackHTML) {
+          feedback.innerHTML = feedbackHTML;
+        } else {
           feedback.textContent = "No files uploaded.";
         }
       }
       
       filesInput.value = "";
       updateSubmit();
-      submitBtn.disabled = false;
+      if (submitBtn) submitBtn.disabled = false;
     });
 
     // Close browser on Escape key

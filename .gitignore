@@ -17,6 +17,7 @@ build/
 # Coverage
 /coverage.xml
 /.coverage
+.cursor/
 /htmlcov/
 
 # Local env

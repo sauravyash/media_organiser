@@ -18,7 +18,8 @@ app.config["MAX_CONTENT_LENGTH"] = max_upload_size
 def get_import_dir() -> Path:
     path = Path(os.environ.get("IMPORT_DIR", "./data/import"))
     path.mkdir(parents=True, exist_ok=True)
-    return path
+    # Always return resolved (absolute) path to avoid issues with relative_to()
+    return path.resolve()
 
 
 def _safe_relative_path(import_dir: Path, rel_path: str) -> Path | None:
@@ -26,7 +27,10 @@ def _safe_relative_path(import_dir: Path, rel_path: str) -> Path | None:
     base = import_dir.resolve()
     try:
         resolved = (import_dir / rel_path).resolve()
-        if base in resolved.parents:
+        # Check if resolved is within base: base must be resolved itself or a parent
+        # For files: base will be in resolved.parents
+        # For edge case where resolved == base: check equality
+        if base == resolved or base in resolved.parents:
             return resolved
     except (ValueError, OSError):
         pass
@@ -57,9 +61,8 @@ def upload():
     elif "file" in request.files and request.files["file"].filename:
         files = [request.files["file"]]
     else:
-        if request.accept_mimetypes.best == "application/json":
-            return jsonify({"error": "No files selected"}), 400
-        return redirect(url_for("index"))
+        # Always return JSON error
+        return jsonify({"error": "No files selected"}), 400
 
     paths = request.form.getlist("paths")
     saved = []
@@ -87,19 +90,31 @@ def upload():
         if dest is None:
             rejected.append(rel_path)
             continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if dest.exists():
-            stem, ext = dest.stem, dest.suffix
-            n = 1
-            while dest.exists():
-                dest = dest.parent / f"{stem} ({n}){ext}"
-                n += 1
-        f.save(str(dest))
-        saved.append(str(dest.relative_to(import_dir)))
-
-    if request.accept_mimetypes.best == "application/json":
-        return jsonify({"saved": saved, "rejected": rejected})
-    return redirect(url_for("index"))
+        
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if dest.exists():
+                stem, ext = dest.stem, dest.suffix
+                n = 1
+                while dest.exists():
+                    dest = dest.parent / f"{stem} ({n}){ext}"
+                    n += 1
+            # Ensure dest is resolved (absolute) before saving
+            dest = dest.resolve()
+            f.save(str(dest))
+            # Both paths are now guaranteed to be absolute, so relative_to() will work
+            saved.append(str(dest.relative_to(import_dir)))
+        except Exception as e:
+            # Catch any errors during save (permissions, disk full, etc.)
+            rejected.append(f"{rel_path} (error: {str(e)})")
+    
+    # Return error status code if no files were successfully uploaded
+    if not saved:
+        # 422 Unprocessable Entity - request was valid but files couldn't be processed
+        return jsonify({"saved": saved, "rejected": rejected}), 422
+    
+    # Always return JSON with saved and rejected lists
+    return jsonify({"saved": saved, "rejected": rejected})
 
 
 def run_server(host: str = "0.0.0.0", port: int = 6767, debug: bool = False):
