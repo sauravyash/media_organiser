@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Iterable, List, Dict
 import re
-from media_organiser.constants import SUB_EXTS
+from media_organiser.constants import SUB_EXTS, SIDECAR_EXTS
 
 
 _LANG_RE = re.compile(r"(?i)[\.\- _]([a-z]{2,3}(?:-[A-Z]{2})?)(?=($|\.[^.]+))")
@@ -10,7 +10,7 @@ def find_related_sidecars(src: Path) -> Iterable[Path]:
     base = re.escape(src.stem)
     pat = re.compile(rf"(?i)^({base})(?P<suffix>(?:[ ._\-](?!S\d{{1,2}}E)\w[\w.\-]*)?)$")
     for p in src.parent.iterdir():
-        if p.is_file() and p.suffix.lower() in SUB_EXTS:
+        if p.is_file() and p.suffix.lower() in SIDECAR_EXTS:
             if pat.match(p.stem):
                 yield p
 
@@ -24,5 +24,7 @@ def copy_move_sidecars(src_video: Path, dst_video: Path, mover, mode: str, dry_r
         suffix = side.stem[len(src_video.stem):]
         dst = dst_video.with_name(dst_video.stem + suffix + side.suffix)
         mover(side, dst, mode, dry_run)
-        moved.append({"file": dst.name, "lang": guess_lang_from_suffix(suffix) or ""})
+        # Only subs go into the subtitles list (NFO is moved but not listed as a subtitle)
+        if side.suffix.lower() in SUB_EXTS:
+            moved.append({"file": dst.name, "lang": guess_lang_from_suffix(suffix) or ""})
     return moved

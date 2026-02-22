@@ -3,6 +3,7 @@ import re
 
 VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".m4v", ".wmv", ".flv", ".ts", ".webm"}
 SUB_EXTS   = {".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt", ".sup", ".ttml", ".dfxp", ".smi"}
+SIDECAR_EXTS = SUB_EXTS | {".nfo"}  # subs + NFO (all moved/copied with video)
 POSTER_NAMES = ("poster.jpg", "folder.jpg", "cover.jpg")
 
 SEASON_PATTERNS = [

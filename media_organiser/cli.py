@@ -98,6 +98,9 @@ def main():
                     continue
 
             do_move_or_copy(path, out_file, args.mode, args.dry_run, quality)
+            # Read source NFO before moving sidecars (sidecars include .nfo and get moved)
+            src_nfo = find_nfo(path)
+            base_meta_from_src = merge_first({}, read_nfo_to_meta(src_nfo)) if src_nfo else {}
             subs = copy_move_sidecars(path, out_file, do_move_or_copy, args.mode, args.dry_run)
 
             if args.emit_nfo in ("tv","all") and not args.dry_run:
@@ -118,10 +121,7 @@ def main():
                     "sourcepath": str(path),
                     "subtitles": subs,
                 }
-                base_meta = {}
-                src_nfo = find_nfo(path)
-                if src_nfo:
-                    base_meta = merge_first(base_meta, read_nfo_to_meta(src_nfo))
+                base_meta = base_meta_from_src
                 dest_nfo = nfo_path_for(out_file, "tv", args.nfo_layout)
                 if dest_nfo.exists():
                     base_meta = merge_first(base_meta, read_nfo_to_meta(dest_nfo))
@@ -148,6 +148,8 @@ def main():
                     continue
 
             do_move_or_copy(path, out_file, args.mode, args.dry_run, quality)
+            # Read source NFO before moving sidecars (sidecars include .nfo and get moved)
+            base_meta_from_src = merge_first({}, read_nfo_to_meta(used_nfo)) if used_nfo else {}
             subs = copy_move_sidecars(path, out_file, do_move_or_copy, args.mode, args.dry_run)
 
             # optional: carry posters through sieve
@@ -173,9 +175,7 @@ def main():
                     "sourcepath": str(path),
                     "subtitles": subs,
                 }
-                base_meta = {}
-                if used_nfo:
-                    base_meta = merge_first(base_meta, read_nfo_to_meta(used_nfo))
+                base_meta = base_meta_from_src
                 dest_nfo = nfo_path_for(out_file, "movie", args.nfo_layout)
                 if dest_nfo.exists():
                     base_meta = merge_first(base_meta, read_nfo_to_meta(dest_nfo))
