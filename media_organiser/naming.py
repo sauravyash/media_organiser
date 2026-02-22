@@ -59,8 +59,12 @@ def titlecase_soft(s: str) -> str:
         return "-".join(part.capitalize() for part in w.split("-"))
     
     result = " ".join(hyphenated_titlecase(w) for w in s.split())
-    # Capitalize letter after apostrophe (e.g. O'gill -> O'Gill)
-    result = re.sub(r"(?<=')([a-z])", lambda m: m.group(1).upper(), result)
+    # Capitalize letter after apostrophe (e.g. O'Brien) but not possessive/contraction 's or 't (Pete's, don't)
+    result = re.sub(
+        r"(?<=')([a-z])",
+        lambda m: m.group(1) if m.group(1) in ("s", "t") else m.group(1).upper(),
+        result,
+    )
     return result
 
 def clean_name(raw: str, *, strip_leading_index: bool = True, strip_scene_words: bool = True) -> str:
@@ -183,8 +187,10 @@ def is_tv_episode(filename: str, path: Optional[Path] = None) -> tuple[bool, dic
     
     ep1 = int(gd["ep1"])
     ep2 = int(gd["ep2"]) if gd.get("ep2") else None
-    # Reject ep2 when it looks like resolution (e.g. S01E10.480p -> ep2=480) or unreasonably large
-    if ep2 is not None and (ep2 in (480, 576, 720, 1080, 2160, 4320) or ep2 > 200):
+    # Reject ep2 when it looks like resolution (e.g. S01E10.480p -> ep2=480, 1080p -> ep2=108) or unreasonably large
+    if ep2 is not None and (
+        ep2 in (72, 108, 216, 432, 480, 576, 720, 1080, 2160, 4320) or ep2 > 99
+    ):
         ep2 = None
     return True, {"series": series, "season": season, "ep1": ep1, "ep2": ep2}
 
@@ -213,15 +219,21 @@ def movie_name_from_parents(path: Path, src_root=Path) -> Optional[str]:
         # If your directory regex exposes a "title" group, start from that; else use the raw name
         m = MOVIE_DIR_RE.match(raw) if "MOVIE_DIR_RE" in globals() else None
         candidate = m.group("title") if m and "title" in m.groupdict() else raw
-        # Strip leading "N. " or "N - " index when not from MOVIE_DIR_RE (e.g. "1. Philosophor's Stone")
+        # Strip leading "N. " or "N - " index when not from MOVIE_DIR_RE (e.g. "1. Philosophor's Stone"), not "3 Idiots"
         if not m:
-            candidate = re.sub(r"^\s*\d{1,3}[\s\.\-\–—)]+\s*", "", candidate).strip()
+            candidate = re.sub(r"^\s*\d{1,3}(?:[.\-\–—)]|\s{2,})\s*", "", candidate).strip()
         
         # Strip scene words from candidate (e.g. "DVDRip", "XviD") and normalize
         candidate = SCENE_WORDS.sub(" ", candidate)
-        # Replace dots/underscores with spaces, but preserve single-digit decimals (e.g. 1.5, not 2019.1080)
+        # Replace dots/underscores with spaces, but preserve single-digit decimals (e.g. 1.5, 1-1.5)
         _dot_placeholder = "\u200b"
         candidate = re.sub(r"(?<!\d)(\d)[._](\d)(?!\d)", lambda m: m.group(1) + _dot_placeholder + m.group(2), candidate)
+        # Also protect digit.digit after hyphen or start (e.g. "1-1.5" in "The Lion King 1-1.5")
+        candidate = re.sub(
+            r"(?:^|([\s\-]))(\d)[._](\d)(?!\d)",
+            lambda m: (m.group(1) or "") + m.group(2) + _dot_placeholder + m.group(3),
+            candidate,
+        )
         candidate = re.sub(r"[._]+", " ", candidate)
         candidate = candidate.replace(_dot_placeholder, ".")
         # Strip trailing release group patterns (e.g., "-DoNE", "-Larceny")
@@ -260,12 +272,16 @@ def movie_name_from_parents(path: Path, src_root=Path) -> Optional[str]:
             if resolution is None:
                 resolution = next((t.lower() for t in res_tokens), None)
 
-        # Truncate title at the first year token (e.g., 1999, 2010)
-
+        # Truncate title at the first plausible release-year token (1900-2030), not e.g. 2049 in "Blade Runner 2049"
         for i, tok in enumerate(title_tokens):
             if YEAR_PATTERN.fullmatch(tok):
-                title_tokens = title_tokens[:i]
-                break
+                try:
+                    y = int(tok)
+                    if 1900 <= y <= 2030:
+                        title_tokens = title_tokens[:i]
+                        break
+                except ValueError:
+                    pass
 
         # Build base title
         base = titlecase_soft(" ".join(title_tokens).strip())
@@ -299,9 +315,14 @@ def movie_part_suffix(path: Path) -> str:
 def guess_movie_name_from_file(filename: str) -> str:
     p = Path(filename)
     suffix = p.suffix  # e.g. ".mp4"
-    # Preserve single-digit decimals (e.g. 1.5) when splitting on dot, not 2019.1080
+    # Preserve single-digit decimals (e.g. 1.5, 1-1.5) when splitting on dot, not 2019.1080
     _dot_placeholder = "\u200b"
     stem_work = re.sub(r"(?<!\d)(\d)\.(\d)(?!\d)", lambda m: m.group(1) + _dot_placeholder + m.group(2), p.stem)
+    stem_work = re.sub(
+        r"(?:^|([\s\-]))(\d)\.(\d)(?!\d)",
+        lambda m: (m.group(1) or "") + m.group(2) + _dot_placeholder + m.group(3),
+        stem_work,
+    )
     sep = find_separator(p.stem) or " "
     tokens = stem_work.split(sep=sep)
     # separate resolution-ish tokens from title tokens
@@ -327,11 +348,16 @@ def guess_movie_name_from_file(filename: str) -> str:
         if resolution is None:
             resolution = next((t.lower() for t in res_tokens), None)
 
-    # truncate title at first year token if present
+    # truncate title at first plausible release-year token (1900-2030), not e.g. 2049 in "Blade Runner 2049"
     for i, tok in enumerate(title_tokens):
         if YEAR_PATTERN.fullmatch(tok):
-            title_tokens = title_tokens[:i]
-            break
+            try:
+                y = int(tok)
+                if 1900 <= y <= 2030:
+                    title_tokens = title_tokens[:i]
+                    break
+            except ValueError:
+                pass
 
     base = titlecase_soft(" ".join(title_tokens).strip().replace(_dot_placeholder, "."))
     return f"{base}"
@@ -387,13 +413,18 @@ _PAREN_YEAR_RE = re.compile(r"\(((?:19|20)\d{2})\)")
 
 
 def normalise_movie_title_for_display(title: str) -> str:
-    """Strip trailing (YYYY) and [quality] so CLI can add them once and avoid duplication."""
+    """Strip trailing (YYYY) and all [...] blocks so CLI can add year/quality once and avoid duplication."""
     s = title.strip()
-    # Strip trailing [quality] or [Other]
-    s = re.sub(r"(?i)\s*\[\s*(?:480p|576p|720p|1080p|2160p|4320p|Other)\s*\]\s*$", "", s)
-    # Strip trailing (YYYY)
-    s = re.sub(r"\s*\(\s*(?:19|20)\d{2}\s*\)\s*$", "", s)
-    return s.strip()
+    while True:
+        prev = s
+        # Strip any trailing [brackets] (e.g. [YTS AG], [720p], [Other])
+        s = re.sub(r"\s*\[[^\]]*\]\s*$", "", s)
+        # Strip trailing (YYYY)
+        s = re.sub(r"\s*\(\s*(?:19|20)\d{2}\s*\)\s*$", "", s)
+        s = s.strip()
+        if s == prev:
+            break
+    return s
 
 
 def guess_year_for_movie(path: Path) -> Optional[str]:

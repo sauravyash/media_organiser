@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 from media_organiser.cli import main
-from media_organiser.naming import is_tv_episode, detect_quality, clean_name, guess_movie_name_from_file, guess_movie_name, movie_part_suffix, titlecase_soft, movie_name_from_parents, is_generic_collection_parent
+from media_organiser.naming import is_tv_episode, detect_quality, clean_name, guess_movie_name_from_file, guess_movie_name, movie_part_suffix, titlecase_soft, movie_name_from_parents, is_generic_collection_parent, normalise_movie_title_for_display
 
 
 def test_tv_patterns_basic():
@@ -16,6 +16,13 @@ def test_tv_patterns_range_and_variants():
     assert ok and info["season"] == 4 and info["ep1"] == 1
     ok, info = is_tv_episode("Breaking Bad S02 01.mkv")
     assert ok and info["season"] == 2 and info["ep1"] == 1
+
+
+def test_tv_ep2_not_resolution_bleed():
+    """1080p etc. must not be parsed as ep2 (e.g. S03E01-E108)."""
+    ok, info = is_tv_episode("Black.Mirror.S03E01.1080p.5.1Ch.WebRip.ReEnc-DeeJayAhmed.mkv")
+    assert ok and info["series"] == "Black Mirror" and info["season"] == 3 and info["ep1"] == 1
+    assert info.get("ep2") is None
 
 def test_quality_detection():
     assert detect_quality("movie.1080p.x265.mkv") == "1080p"
@@ -307,6 +314,31 @@ def test_movie_name_from_parents_strips_release_group_suffix(tmp_path):
     assert movie_name == "Madagascar Escape 2 Africa"  # Should be clean without artifacts
 
 
+def test_three_idiots_leading_number_not_stripped(tmp_path):
+    """Leading number with single space (e.g. '3 Idiots') must not be stripped as index."""
+    src = tmp_path / "in"
+    # Parent without MOVIE_DIR_RE match so strip branch runs; old regex would strip "3 " -> "Idiots"
+    parent_dir = src / "3 Idiots 2009 [1080p]"
+    parent_dir.mkdir(parents=True)
+    path = parent_dir / "3.Idiots.2009.1080p.mkv"
+    path.touch()
+    movie_name = movie_name_from_parents(path, src)
+    assert movie_name is not None
+    assert movie_name == "3 Idiots", "Leading '3 ' must not be stripped when not an index (e.g. 1. or 01 -)"
+
+
+def test_blade_runner_2049_year_not_truncated(tmp_path):
+    """Title 2049 (e.g. Blade Runner 2049) must not be truncated as a year; only 1900-2030 truncate."""
+    src = tmp_path / "in"
+    parent_dir = src / "Blade Runner 2049 (2017)"
+    parent_dir.mkdir(parents=True)
+    path = parent_dir / "Blade.Runner.2049.2017.720p.mkv"
+    path.touch()
+    movie_name = movie_name_from_parents(path, src)
+    assert movie_name is not None
+    assert movie_name == "Blade Runner 2049", "2049 should stay in title, not be treated as release year"
+
+
 def test_titlecase_soft_preserves_hyphenated_capitals():
     """titlecase_soft should preserve hyphenated capitals like 'Were-Rabbit'."""
     result = titlecase_soft("Wallace and Gromit In The Curse Of The Were-Rabbit")
@@ -321,6 +353,38 @@ def test_titlecase_soft_capitalizes_lowercase_hyphenated():
     
     result2 = titlecase_soft("some-movie-title")
     assert result2 == "Some-Movie-Title"
+
+
+def test_lion_king_1_5_preserves_decimal(tmp_path):
+    """Decimal 1.5 in '1-1.5' or 'The Lion King 1-1.5' must be preserved, not turned into '1 5'."""
+    src = tmp_path / "in"
+    parent_dir = src / "The Lion King 1-1.5 - Hakuna Matata (2004)"
+    parent_dir.mkdir(parents=True)
+    path = parent_dir / "movie.avi"
+    path.touch()
+    movie_name = movie_name_from_parents(path, src)
+    assert movie_name is not None
+    assert "1.5" in movie_name, "1.5 must be preserved in title (e.g. The Lion King 1-1.5)"
+    assert "1 5" not in movie_name
+
+    # From filename stem as well
+    assert "1.5" in guess_movie_name_from_file("The.Lion.King.1-1.5.Hakuna.Matata.2004.720p.mkv")
+
+
+def test_normalise_movie_title_strips_trailing_brackets_and_year():
+    """Trailing [tags] and (YYYY) are stripped so CLI adds them once (e.g. YTS-style folders)."""
+    assert normalise_movie_title_for_display("Despicable Me 3 (2017) [YTS AG]") == "Despicable Me 3"
+    assert normalise_movie_title_for_display("Some Movie (2019) [720p] [YTS AM]") == "Some Movie"
+    assert normalise_movie_title_for_display("Title (2020) [1080p]") == "Title"
+
+
+def test_titlecase_soft_preserves_possessive_apostrophe():
+    """Possessive 's and contraction 't stay lowercase (Pete's, don't, Scamp's)."""
+    assert titlecase_soft("Pete's Dragon") == "Pete's Dragon"
+    assert titlecase_soft("Scamp's Adventure") == "Scamp's Adventure"
+    assert titlecase_soft("don't") == "Don't"
+    # O'Brien-style: capitalize after apostrophe when not s/t
+    assert titlecase_soft("o'brien") == "O'Brien"
 
 
 def test_tv_pattern_ep_xx_at_start():

@@ -479,6 +479,25 @@ def test_tv_case_normalization_creates_single_folder(tmp_path):
     assert len(lucifer_folders) == 1, f"Should have only one Lucifer folder, found: {lucifer_folders}"
 
 
+def test_tv_batch_duplicate_skipped(tmp_path, capsys):
+    """When two source files map to the same episode, only the first is moved; second is skipped with warning."""
+    src = tmp_path / "in"
+    dst = tmp_path / "out"
+    src.mkdir()
+    season_dir = src / "Show Name" / "Season 1"
+    season_dir.mkdir(parents=True)
+    (season_dir / "Show.Name.S01E01.720p.mkv").write_bytes(b"A" * 4096)
+    (season_dir / "Show.Name.S01E01.480p.mkv").write_bytes(b"B" * 4096)
+
+    run_cli_in_proc(src, dst, ["--mode", "copy", "--emit-nfo", "tv", "--dupe-mode", "off"])
+
+    out_season = dst / "tv" / "Show Name" / "Season 01"
+    out_files = list(out_season.glob("*.mkv")) if out_season.exists() else []
+    assert len(out_files) == 1, "Only one file should be moved for the same episode; duplicate in batch must be skipped"
+    out, err = capsys.readouterr()
+    assert "Potential duplicate in batch" in out or "Potential duplicate in batch" in err
+
+
 def test_carry_posters_called_in_movie_flow(tmp_path, monkeypatch):
     """
     Covers:

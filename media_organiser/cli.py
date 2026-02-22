@@ -82,14 +82,14 @@ def main():
             season_dir.mkdir(parents=True, exist_ok=True)
             out_file = season_dir / f"{series} - {ep_tag} ({quality}){path.suffix.lower()}"
 
-            # Check for duplicates in the same batch
+            # Check for duplicates in the same batch; skip second and later copies
             episode_key = (series.lower(), s_no, e_no)
             if episode_key in tv_episodes_processing:
                 existing_paths = tv_episodes_processing[episode_key]
                 print(f"[WARNING] Potential duplicate in batch: {path} (same episode as {existing_paths})")
                 tv_episodes_processing[episode_key].append(path)
-            else:
-                tv_episodes_processing[episode_key] = [path]
+                continue
+            tv_episodes_processing[episode_key] = [path]
 
             if args.dupe_mode != "off":  # noqa
                 dup = is_duplicate_in_dir(path, season_dir, args.dupe_mode)

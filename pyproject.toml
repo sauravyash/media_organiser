@@ -6,6 +6,9 @@ readme = "readme.md"
 authors = []
 packages = [{include = "media_organiser"}]
 
+[tool.poetry.scripts]
+media-organiser = "media_organiser.cli:main"
+
 [tool.poetry.dependencies]
 python = "^3.10"
 pillow = "*"

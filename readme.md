@@ -48,18 +48,14 @@ This repository uses **pytest** for integration and unit testing. Major test cov
 ### Running tests locally
 
 ```bash
-python -m pip install -U pip
-pip install pytest
-# Optional (enables poster sieve test)
-pip install Pillow
-
-pytest -q
+poetry install
+poetry run pytest -q
 ```
 
 Generate coverage:
 
 ```bash
-pytest --cov=1771768850media_organiser --cov-report=term --cov-report=xml
+poetry run pytest --cov=media_organiser --cov-report=term --cov-report=xml
 ```
 
 ---
@@ -131,7 +127,8 @@ media_organiser/
 ```bash
 git clone https://github.com/sauravyash/media_organiser.git
 cd media_organiser
-python -m media_organiser --help
+poetry install
+poetry run media-organiser --help
 ```
 
 ---
@@ -139,7 +136,7 @@ python -m media_organiser --help
 ## Usage
 
 ```bash
-python -m media_organiser SOURCE [DEST]
+poetry run media-organiser SOURCE [DEST]
   [--mode move|copy]
   [--dry-run]
   [--dupe-mode off|name|size|hash]
