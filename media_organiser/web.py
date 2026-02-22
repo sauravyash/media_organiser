@@ -10,6 +10,7 @@ app = Flask(
     template_folder=Path(__file__).resolve().parent / "templates",
     static_folder=Path(__file__).resolve().parent / "static",
 )
+
 # Allow up to 30GB by default, configurable via MAX_UPLOAD_SIZE env var
 max_upload_size = int(os.environ.get("MAX_UPLOAD_SIZE", 30 * 1024 * 1024 * 1024))
 app.config["MAX_CONTENT_LENGTH"] = max_upload_size

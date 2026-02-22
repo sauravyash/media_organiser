@@ -10,9 +10,33 @@ from .constants import (
     MOVIE_DIR_RE,
     SCENE_WORDS,
     GENERIC_DIRS,
-    GENERIC_COLLECTION_DIRS,
     MOVIE_PART_RE,
 )
+
+# Patterns for dynamic generic collection detection (replaces GENERIC_COLLECTION_DIRS)
+_COLLECTION_KEYWORDS_RE = re.compile(
+    r"(?i)\b(movies|series|trilogy|franchise|collection|short films|anthology)\b"
+)
+_YEAR_RANGE_RE = re.compile(r"(19|20)\d{2}\s*-\s*(19|20)\d{2}")
+
+
+def is_generic_collection_parent(parent_name: str) -> bool:
+    """
+    Return True when the folder name looks like a multi-movie collection (e.g. "Kids Movies",
+    "Harry Potter Series", "The Lord of the Rings Trilogy (2001-2003)"), so we prefer the
+    filename-derived title over the folder name. Single-movie folders (e.g. "Inception (2010)")
+    return False.
+    """
+    if not parent_name or not parent_name.strip():
+        return False
+    lower = parent_name.lower().strip()
+    if _COLLECTION_KEYWORDS_RE.search(lower):
+        return True
+    if _YEAR_RANGE_RE.search(lower):
+        return True
+    if "pre mcu" in lower or "film franchise" in lower:
+        return True
+    return False
 
 
 def detect_quality(filename: str) -> str:
@@ -34,7 +58,10 @@ def titlecase_soft(s: str) -> str:
             return w
         return "-".join(part.capitalize() for part in w.split("-"))
     
-    return " ".join(hyphenated_titlecase(w) for w in s.split())
+    result = " ".join(hyphenated_titlecase(w) for w in s.split())
+    # Capitalize letter after apostrophe (e.g. O'gill -> O'Gill)
+    result = re.sub(r"(?<=')([a-z])", lambda m: m.group(1).upper(), result)
+    return result
 
 def clean_name(raw: str, *, strip_leading_index: bool = True, strip_scene_words: bool = True) -> str:
     name = Path(raw).stem
@@ -156,6 +183,9 @@ def is_tv_episode(filename: str, path: Optional[Path] = None) -> tuple[bool, dic
     
     ep1 = int(gd["ep1"])
     ep2 = int(gd["ep2"]) if gd.get("ep2") else None
+    # Reject ep2 when it looks like resolution (e.g. S01E10.480p -> ep2=480) or unreasonably large
+    if ep2 is not None and (ep2 in (480, 576, 720, 1080, 2160, 4320) or ep2 > 200):
+        ep2 = None
     return True, {"series": series, "season": season, "ep1": ep1, "ep2": ep2}
 
 def movie_name_from_parents(path: Path, src_root=Path) -> Optional[str]:
@@ -183,20 +213,30 @@ def movie_name_from_parents(path: Path, src_root=Path) -> Optional[str]:
         # If your directory regex exposes a "title" group, start from that; else use the raw name
         m = MOVIE_DIR_RE.match(raw) if "MOVIE_DIR_RE" in globals() else None
         candidate = m.group("title") if m and "title" in m.groupdict() else raw
+        # Strip leading "N. " or "N - " index when not from MOVIE_DIR_RE (e.g. "1. Philosophor's Stone")
+        if not m:
+            candidate = re.sub(r"^\s*\d{1,3}[\s\.\-\–—)]+\s*", "", candidate).strip()
         
         # Strip scene words from candidate (e.g. "DVDRip", "XviD") and normalize
         candidate = SCENE_WORDS.sub(" ", candidate)
-        # Replace dots/underscores with spaces (like clean_name does)
+        # Replace dots/underscores with spaces, but preserve single-digit decimals (e.g. 1.5, not 2019.1080)
+        _dot_placeholder = "\u200b"
+        candidate = re.sub(r"(?<!\d)(\d)[._](\d)(?!\d)", lambda m: m.group(1) + _dot_placeholder + m.group(2), candidate)
         candidate = re.sub(r"[._]+", " ", candidate)
+        candidate = candidate.replace(_dot_placeholder, ".")
         # Strip trailing release group patterns (e.g., "-DoNE", "-Larceny")
         candidate = re.sub(r"-[A-Za-z0-9]+\s*$", "", candidate)
+        # Remove empty bracket pairs left after stripping scene words (e.g. [WEBRip] -> [ ])
+        candidate = re.sub(r"\[\s*\]", "", candidate)
         # Normalize spaces and strip separators
         candidate = re.sub(r"\s+", " ", candidate).strip(" .-_")
-        if not candidate or len(candidate) < 2:
+        # Allow single-char titles when from MOVIE_DIR_RE (e.g. "9 (2009)")
+        from_movie_dir_re = m and "title" in m.groupdict()
+        if not candidate or (len(candidate) < 2 and not from_movie_dir_re):
             continue
 
-        # Tokenize like the file-based function
-        sep = find_separator(candidate) or " "
+        # Tokenize; prefer space so hyphenated words (e.g. Were-Rabbit) stay one token
+        sep = " " if " " in candidate else (find_separator(candidate) or " ")
         tokens = [t for t in candidate.split(sep=sep) if t]
 
         # Separate resolution-ish tokens from title tokens
@@ -259,8 +299,11 @@ def movie_part_suffix(path: Path) -> str:
 def guess_movie_name_from_file(filename: str) -> str:
     p = Path(filename)
     suffix = p.suffix  # e.g. ".mp4"
+    # Preserve single-digit decimals (e.g. 1.5) when splitting on dot, not 2019.1080
+    _dot_placeholder = "\u200b"
+    stem_work = re.sub(r"(?<!\d)(\d)\.(\d)(?!\d)", lambda m: m.group(1) + _dot_placeholder + m.group(2), p.stem)
     sep = find_separator(p.stem) or " "
-    tokens = p.stem.split(sep=sep)
+    tokens = stem_work.split(sep=sep)
     # separate resolution-ish tokens from title tokens
     res_tokens, title_tokens = [], []
     for tok in tokens:
@@ -290,7 +333,7 @@ def guess_movie_name_from_file(filename: str) -> str:
             title_tokens = title_tokens[:i]
             break
 
-    base = titlecase_soft(" ".join(title_tokens).strip())
+    base = titlecase_soft(" ".join(title_tokens).strip().replace(_dot_placeholder, "."))
     return f"{base}"
 
 
@@ -315,16 +358,54 @@ def title_from_filename_for_generic_parent(path: Path) -> Optional[str]:
         if title_part:
             return titlecase_soft(title_part)
     
-    # Pattern 2: "NN. Title" or "NN. Title (YEAR)"
-    index_title_match = re.match(r"^\d{1,3}[.\s)\-]+\s*(.+?)(?:\s*\(\d{4}\))?\s*$", stem)
+    # Pattern 2: "NN. Title" or "NN. Title (YEAR)" or "NN. Title ... Year ... Quality"
+    index_title_match = re.match(r"^\d{1,3}[.\s)\-]+\s*(.+)$", stem)
     if index_title_match:
         title_part = index_title_match.group(1)
+        # Strip trailing (YEAR) if present (e.g. "John Henry (2000)")
+        title_part = re.sub(r"\s*\(\d{4}\)\s*$", "", title_part)
         # Normalize spaces/dots
         title_part = re.sub(r"[._]+", " ", title_part)
         title_part = re.sub(r"\s+", " ", title_part).strip()
+        # Truncate at first year token and drop resolution tokens (e.g. "Alien Directors Cut - Sci-Fi 1979 Eng 720p" -> "Alien Directors Cut - Sci-Fi")
+        tokens = title_part.split()
+        kept = []
+        for t in tokens:
+            if YEAR_PATTERN.fullmatch(t):
+                break
+            if not RESOLUTION_PATTERN.fullmatch(t):
+                kept.append(t)
+        title_part = " ".join(kept).strip()
         if title_part:
             return titlecase_soft(title_part)
     
+    return None
+
+
+# Prefer year in parentheses (release year) over bare 4-digit number in title (e.g. Blade Runner 2049)
+_PAREN_YEAR_RE = re.compile(r"\(((?:19|20)\d{2})\)")
+
+
+def normalise_movie_title_for_display(title: str) -> str:
+    """Strip trailing (YYYY) and [quality] so CLI can add them once and avoid duplication."""
+    s = title.strip()
+    # Strip trailing [quality] or [Other]
+    s = re.sub(r"(?i)\s*\[\s*(?:480p|576p|720p|1080p|2160p|4320p|Other)\s*\]\s*$", "", s)
+    # Strip trailing (YYYY)
+    s = re.sub(r"\s*\(\s*(?:19|20)\d{2}\s*\)\s*$", "", s)
+    return s.strip()
+
+
+def guess_year_for_movie(path: Path) -> Optional[str]:
+    """Prefer (YYYY) in path name or parent name; fall back to first YEAR_PATTERN match."""
+    for text in (path.name, path.parent.name if path.parent else ""):
+        m = _PAREN_YEAR_RE.search(text)
+        if m:
+            return m.group(1)  # (2017) -> "2017"
+    for text in (path.name, path.parent.name if path.parent else ""):
+        m = YEAR_PATTERN.search(text)
+        if m:
+            return m.group(0)
     return None
 
 
@@ -335,11 +416,17 @@ def guess_movie_name(path: Path, src_root=Path) -> tuple[str, Path|None]:
         if t: return t, used_nfo
     
     # If parent is a generic collection dir, try extracting title from filename
-    if path.parent and path.parent.name.lower() in GENERIC_COLLECTION_DIRS:
+    if path.parent and is_generic_collection_parent(path.parent.name):
         title_from_file = title_from_filename_for_generic_parent(path)
         if title_from_file:
             return title_from_file, used_nfo
+        # No pattern matched; prefer file-based title when clearly different (e.g. Monsters University vs Monsters Inc)
+        file_based = guess_movie_name_from_file(path.stem)
+        by_parent = movie_name_from_parents(path, src_root=src_root)
+        if file_based and by_parent and file_based.lower() not in by_parent.lower() and len(file_based) > 5:
+            return file_based, used_nfo
     
     by_parent = movie_name_from_parents(path, src_root=src_root)
-    if by_parent: return by_parent, used_nfo
+    if by_parent:
+        return by_parent, used_nfo
     return guess_movie_name_from_file(path.stem), used_nfo

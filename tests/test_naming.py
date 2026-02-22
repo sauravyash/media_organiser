@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 from media_organiser.cli import main
-from media_organiser.naming import is_tv_episode, detect_quality, clean_name, guess_movie_name_from_file, guess_movie_name, movie_part_suffix, titlecase_soft, movie_name_from_parents, titlecase_soft, movie_name_from_parents
+from media_organiser.naming import is_tv_episode, detect_quality, clean_name, guess_movie_name_from_file, guess_movie_name, movie_part_suffix, titlecase_soft, movie_name_from_parents, is_generic_collection_parent
 
 
 def test_tv_patterns_basic():
@@ -131,6 +131,30 @@ def test_movie_file_only(tmp_path):
     assert out_file.exists()
 
 
+def test_is_generic_collection_parent():
+    """Dynamic detector: true for collection-like folder names, false for single-movie folders."""
+    generic_names = [
+        "disney movies",
+        "disney short films",
+        "kids movies",
+        "marvel - pre mcu",
+        "the hunger games trilogy",
+        "harry potter series",
+        "The Lord of the Rings Trilogy (2001-2003)",
+        "Alien Series 1979-2012",
+        "Alien Film Franchise [Directors Cut-Special Edition-Unrated] 1979-2012",
+    ]
+    for name in generic_names:
+        assert is_generic_collection_parent(name), f"expected generic: {name!r}"
+    single_movie_names = [
+        "Inception (2010)",
+        "some movie (2019)",
+        "The Matrix 1999 1080p",
+    ]
+    for name in single_movie_names:
+        assert not is_generic_collection_parent(name), f"expected not generic: {name!r}"
+
+
 def test_generic_parent_disney_movies_uses_filename_title(tmp_path):
     """When parent is 'Disney Movies', extract title from filename pattern 'YEAR - Title'."""
     src = tmp_path / "in"
@@ -157,6 +181,90 @@ def test_generic_parent_disney_short_films_uses_filename_title(tmp_path):
     movie_name, _ = guess_movie_name(path, src)
     assert movie_name == "John Henry"
     assert movie_name != "Disney Short Films"
+
+
+def test_generic_parent_kids_movies_uses_filename_title(tmp_path):
+    """When parent is 'Kids Movies', use file-based title (e.g. Despicable Me 3) not collection name."""
+    src = tmp_path / "in"
+    parent = src / "Kids Movies"
+    parent.mkdir(parents=True)
+    path = parent / "Despicable.Me.3.2017.720p.mkv"
+    path.touch()
+    movie_name, _ = guess_movie_name(path, src)
+    assert movie_name == "Despicable Me 3"
+    assert movie_name != "Kids Movies"
+
+
+def test_generic_parent_marvel_pre_mcu_uses_filename_title(tmp_path):
+    """When parent is 'Marvel - Pre MCU', use file-based title (e.g. The Punisher) not collection name."""
+    src = tmp_path / "in"
+    parent = src / "Marvel - Pre MCU"
+    parent.mkdir(parents=True)
+    path = parent / "The.Punisher.1989.mkv"
+    path.touch()
+    movie_name, _ = guess_movie_name(path, src)
+    assert movie_name == "The Punisher"
+    assert movie_name != "Marvel - Pre MCU"
+
+
+def test_generic_parent_hunger_games_trilogy_uses_filename_title(tmp_path):
+    """When parent is 'The Hunger Games Trilogy', extract title from 'NN. Title' pattern."""
+    src = tmp_path / "in"
+    parent = src / "The Hunger Games Trilogy"
+    parent.mkdir(parents=True)
+    path = parent / "1. The Hunger Games.mp4"
+    path.touch()
+    movie_name, _ = guess_movie_name(path, src)
+    assert movie_name == "The Hunger Games"
+    assert movie_name != "The Hunger Games Trilogy"
+
+
+def test_generic_parent_harry_potter_series_uses_filename_title(tmp_path):
+    """When parent is 'Harry Potter Series', use file-based title not collection name."""
+    src = tmp_path / "in"
+    parent = src / "Harry Potter Series"
+    parent.mkdir(parents=True)
+    path = parent / "Harry.Potter.And.The.Philosophers.Stone.2001.720p.mkv"
+    path.touch()
+    movie_name, _ = guess_movie_name(path, src)
+    assert movie_name == "Harry Potter And The Philosophers Stone"
+    assert movie_name != "Harry Potter Series"
+
+
+def test_generic_parent_lotr_trilogy_uses_filename_title(tmp_path):
+    """When parent is 'The Lord of the Rings Trilogy (2001-2003)', use file-based title per film."""
+    src = tmp_path / "in"
+    parent = src / "The Lord of the Rings Trilogy (2001-2003)"
+    parent.mkdir(parents=True)
+    path = parent / "The.Lord.Of.The.Rings.The.Fellowship.Of.The.Ring.2001.720p.mkv"
+    path.touch()
+    movie_name, _ = guess_movie_name(path, src)
+    assert movie_name == "The Lord Of The Rings The Fellowship Of The Ring"
+    assert movie_name != "The Lord of the Rings Trilogy (2001-2003)"
+
+
+def test_generic_parent_alien_series_uses_filename_title(tmp_path):
+    """When parent is 'Alien Series 1979-2012', extract title from 'NN. Title ... Year' pattern."""
+    src = tmp_path / "in"
+    parent = src / "Alien Series 1979-2012"
+    parent.mkdir(parents=True)
+    path = parent / "01. Alien Directors Cut Sci-Fi 1979 720p.mkv"
+    path.touch()
+    movie_name, _ = guess_movie_name(path, src)
+    assert movie_name == "Alien Directors Cut Sci-Fi"
+    assert movie_name != "Alien Series 1979-2012"
+
+
+def test_generic_parent_alien_film_franchise_uses_filename_title(tmp_path):
+    """When parent is Alien Film Franchise [...], extract title from 'NN. Title ... Year' pattern."""
+    src = tmp_path / "in"
+    parent = src / "Alien Film Franchise [Directors Cut-Special Edition-Unrated] 1979-2012"
+    parent.mkdir(parents=True)
+    path = parent / "07. Prometheus Sci-Fi 2012 720p.mkv"
+    path.touch()
+    movie_name, _ = guess_movie_name(path, src)
+    assert movie_name == "Prometheus Sci-Fi"
+    assert movie_name != "Alien Film Franchise [Directors Cut-Special Edition-Unrated] 1979-2012"
 
 
 def test_movie_name_from_parents_strips_scene_words(tmp_path):

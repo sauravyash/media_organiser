@@ -4,8 +4,8 @@ from pathlib import Path
 
 from .stabilize import is_file_size_stable
 from .cleanup import prune_junk_then_empty_dirs
-from .constants import VIDEO_EXTS, YEAR_PATTERN, IGNORED_PATH_COMPONENTS
-from .naming import detect_quality, is_tv_episode, _clean_title, guess_movie_name, movie_part_suffix
+from .constants import VIDEO_EXTS, IGNORED_PATH_COMPONENTS
+from .naming import detect_quality, is_tv_episode, _clean_title, guess_movie_name, guess_year_for_movie, normalise_movie_title_for_display, movie_part_suffix
 from .nfo import (
     find_nfo,  read_nfo_to_meta, nfo_path_for,
     write_movie_nfo, write_episode_nfo, merge_first, merge_subtitles
@@ -56,8 +56,8 @@ def main():
         if any(part in IGNORED_PATH_COMPONENTS for part in path.parts):
             continue
 
-        # skip incomplete uploads (e.g., vsftpd client still writing)
-        if not is_file_size_stable(path, interval=1.0):
+        # skip incomplete uploads (e.g., vsftpd client still writing); skip check in dry-run for speed
+        if not args.dry_run and not is_file_size_stable(path, interval=1.0):
             print(f"[skip] file not stable or still growing: {path}")
             continue
 
@@ -76,7 +76,7 @@ def main():
             s_no = info["season"]
             e_no = info["ep1"]
             e2 = info.get("ep2")
-            ep_tag = f"S{s_no:02d}E{e_no:02d}" + (f"-E{e2:02d}" if e2 else "")
+            ep_tag = f"S{s_no:02d}E{e_no:02d}" + (f"-E{e2:02d}" if e2 and e2 != e_no else "")
             season_folder = "Specials" if s_no == 0 else f"Season {s_no:02d}"
             season_dir = tv_root / series / season_folder
             season_dir.mkdir(parents=True, exist_ok=True)
@@ -108,7 +108,7 @@ def main():
                     "season": s_no,
                     "episode": e_no,
                     "episode_to": e2,
-                    "title": f"{series} S{s_no:02d}E{e_no:02d}" + (f"-E{e2:02d}" if e2 else ""),
+                    "title": f"{series} S{s_no:02d}E{e_no:02d}" + (f"-E{e2:02d}" if e2 and e2 != e_no else ""),
                     "quality": quality,
                     "extension": out_file.suffix.lstrip(".").lower(),
                     "size": size,
@@ -131,12 +131,11 @@ def main():
 
         else:
             movie_name, used_nfo = guess_movie_name(path, src_root)
-            # rough year for NFO only
-            year_guess = None
-            m = YEAR_PATTERN.search(path.name) or YEAR_PATTERN.search(path.parent.name)
-            if m: year_guess = m.group(0)
+            # Prefer (YYYY) over bare year in title (e.g. Blade Runner 2049)
+            year_guess = guess_year_for_movie(path)
             part_suffix = movie_part_suffix(path)
-            folder_name = f"{movie_name}"
+            # Base title without trailing (year)/[quality] so we add them once
+            folder_name = normalise_movie_title_for_display(movie_name)
             full_name = f"{folder_name} {f'({year_guess}) ' if year_guess else ''}[{quality}]{part_suffix}"
             out_dir = movies_root / folder_name
             out_dir.mkdir(parents=True, exist_ok=True)
