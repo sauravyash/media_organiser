@@ -22,7 +22,7 @@ A fast, offline Python tool that **sorts** your media library, **copies/moves** 
 
 ---
 
-## 🧪 CI Status
+## CI Status
 
 | Python version |                                                                                                Status                                                                                                 |
 | -------------: |:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------:|
@@ -34,7 +34,7 @@ This project is tested automatically on each push and pull request using [pytest
 
 ---
 
-## 🧪 Testing
+## Testing
 
 This repository uses **pytest** for integration and unit testing. Major test coverage includes:
 
@@ -64,7 +64,7 @@ pytest --cov=media_organiser --cov-report=term --cov-report=xml
 
 ---
 
-## 🐳 Docker / Compose
+## Docker / Compose
 
 Media Organiser is Docker-ready. Build from the **project root** (where `Dockerfile` and `docker-compose.yml` live). Example:
 
@@ -95,7 +95,7 @@ So you can either drop files into the mounted import directory on the host, or u
 
 ---
 
-## 📁 Project layout
+## Project layout
 
 ```
 media_organiser/
@@ -117,7 +117,7 @@ media_organiser/
 
 ---
 
-## 📦 Requirements
+## Requirements
 
 * **Python 3.10+**
 * For **CLI-only** use: no mandatory third-party packages.
@@ -126,7 +126,7 @@ media_organiser/
 
 ---
 
-## 🚀 Installation
+## Installation
 
 ```bash
 git clone https://github.com/sauravyash/media_organiser.git
@@ -136,7 +136,7 @@ python -m media_organiser --help
 
 ---
 
-## 🧰 Usage
+## Usage
 
 ```bash
 python -m media_organiser SOURCE [DEST]
@@ -171,7 +171,7 @@ Then open `http://localhost:6767/`, upload files (or a folder to preserve struct
 
 ---
 
-## 🧠 Naming logic
+## Naming logic
 
 * Detects `SxxExx`, `SxxExx-Exx`, `2xNN`, `Sxx NN`
 * Cleans scene noise (`BluRay`, `x265`, `[eztv]`...)
@@ -180,7 +180,7 @@ Then open `http://localhost:6767/`, upload files (or a folder to preserve struct
 
 ---
 
-## 🧼 Example output
+## Example output
 
 ```
 /movies/
@@ -198,7 +198,7 @@ Then open `http://localhost:6767/`, upload files (or a folder to preserve struct
 
 ---
 
-## 🧭 Roadmap
+## Roadmap
 
 * `--carry` for extra sidecars (chapters, thumbs)
 * Quality preference rules
@@ -206,6 +206,6 @@ Then open `http://localhost:6767/`, upload files (or a folder to preserve struct
 * PyPI packaging & release
 ---
 
-## 📝 License
+## License
 
 MIT — do what you like except steal credit; no warranty; I hold no responsibility for anything at all.
