@@ -70,11 +70,11 @@ def music_upload():
 
 @app.route("/music/preview")
 def music_preview():
-    import_dir = get_import_dir()
+    music_dir = get_music_export_dir()
     rel_path = request.args.get("path")
     if not rel_path:
         abort(400)
-    dest = _safe_relative_path(import_dir, rel_path)
+    dest = _safe_relative_path(music_dir, rel_path)
     if dest is None or not dest.is_file():
         abort(404)
     suffix = dest.suffix.lower()
@@ -95,20 +95,20 @@ def music_preview():
 
 @app.route("/api/music/metadata", methods=["POST"])
 def music_metadata():
-    import_dir = get_import_dir()
+    music_dir = get_music_export_dir()
     payload = request.get_json(silent=True) or {}
     paths = payload.get("paths") or []
     tracks: list[dict] = []
     for rel in paths:
         if not isinstance(rel, str):
             continue
-        dest = _safe_relative_path(import_dir, rel)
+        dest = _safe_relative_path(music_dir, rel)
         if dest is None or not dest.is_file():
             continue
         analysis = audio_tools.analyse_audio(dest)
         tracks.append(
             {
-                "path": str(dest.relative_to(import_dir)),
+                "path": str(dest.relative_to(music_dir)),
                 "title": analysis.title,
                 "artist": analysis.artist,
                 "album": analysis.album,
@@ -129,7 +129,7 @@ def music_metadata():
 
 @app.route("/api/music/apply-tags", methods=["POST"])
 def music_apply_tags():
-    import_dir = get_import_dir()
+    music_dir = get_music_export_dir()
     payload = request.get_json(silent=True) or {}
     tracks = payload.get("tracks") or []
     results: list[dict] = []
@@ -137,7 +137,7 @@ def music_apply_tags():
         rel = t.get("path")
         if not isinstance(rel, str):
             continue
-        dest = _safe_relative_path(import_dir, rel)
+        dest = _safe_relative_path(music_dir, rel)
         if dest is None or not dest.is_file():
             results.append({"path": rel, "status": "error", "reason": "Invalid path"})
             continue
@@ -179,20 +179,19 @@ def music_musicbrainz():
 
 @app.route("/api/music/transcode", methods=["POST"])
 def music_transcode():
-    import_dir = get_import_dir()
-    export_dir = get_music_export_dir()
+    music_dir = get_music_export_dir()
     payload = request.get_json(silent=True) or {}
     rel = payload.get("path")
     if not isinstance(rel, str):
         return jsonify({"status": "error", "reason": "Missing path"}), 400
-    dest = _safe_relative_path(import_dir, rel)
+    dest = _safe_relative_path(music_dir, rel)
     if dest is None or not dest.is_file():
         return jsonify({"status": "error", "reason": "Invalid path"}), 400
-    result = audio_tools.ensure_mp3_320(dest, export_dir)
+    result = audio_tools.ensure_mp3_320(dest, music_dir)
     if result.get("output_path"):
         out_path = Path(result["output_path"])
         try:
-            rel_out = out_path.relative_to(export_dir)
+            rel_out = out_path.relative_to(music_dir)
         except ValueError:
             rel_out = out_path.name
         result["output_path"] = str(rel_out)
@@ -201,7 +200,9 @@ def music_transcode():
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    import_dir = get_import_dir()
+    # Music UI sends mode=music so uploads go to MUSIC_LIB_DIR instead of IMPORT_DIR
+    use_music_dir = request.form.get("mode") == "music"
+    base_dir = get_music_export_dir() if use_music_dir else get_import_dir()
     if "files" in request.files:
         files = request.files.getlist("files")
     elif "file" in request.files and request.files["file"].filename:
@@ -232,7 +233,7 @@ def upload():
             rejected.append(f.filename or "unknown")
             continue
             
-        dest = _safe_relative_path(import_dir, rel_path)
+        dest = _safe_relative_path(base_dir, rel_path)
         if dest is None:
             rejected.append(rel_path)
             continue
@@ -249,7 +250,7 @@ def upload():
             dest = dest.resolve()
             f.save(str(dest))
             # Both paths are now guaranteed to be absolute, so relative_to() will work
-            saved.append(str(dest.relative_to(import_dir)))
+            saved.append(str(dest.relative_to(base_dir)))
         except Exception as e:
             # Catch any errors during save (permissions, disk full, etc.)
             rejected.append(f"{rel_path} (error: {str(e)})")

@@ -570,6 +570,7 @@
 {% block content %}
   <div class="layout-two-column">
     <form id="form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+      <input type="hidden" name="mode" value="music">
       <div class="zone" id="zone" role="button" tabindex="0">
         <input type="file" name="files" id="files" multiple>
         <input type="file" name="folder" id="folder" webkitdirectory style="display:none">
@@ -1133,6 +1134,7 @@
         try {
           await new Promise((resolve, reject) => {
             const fd = new FormData();
+            fd.append("mode", "music");
             fd.append("files", file);
             fd.append("paths", path);
 
@@ -1330,6 +1332,7 @@
         try {
           await new Promise((resolve, reject) => {
             const fd = new FormData();
+            fd.append("mode", "music");
             fd.append("files", file);
             fd.append("paths", path);
 

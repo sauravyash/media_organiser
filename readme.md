@@ -74,11 +74,13 @@ services:
     environment:
       IMPORT_DIR: /data/import
       LIB_DIR: /data/library
+      MUSIC_LIB_DIR: /data/music
     ports:
       - "6767:6767"
     volumes:
       - /data/import:/data/import
       - /data/content:/data/library
+      - /data/music:/data/music
 ```
 
 The entrypoint (`entrypoint.sh`) does three things:
@@ -190,7 +192,7 @@ export IMPORT_DIR=/path/to/import          # default: ./data/import
 export MUSIC_LIB_DIR=/path/to/music_lib    # default: ./data/music
 ```
 
-The existing video workflow continues to use the main library directory (`LIB_DIR`) while music exports go to `MUSIC_LIB_DIR`.
+Music uploads (from the Music UI) and music transcode export both use `MUSIC_LIB_DIR`. The existing video workflow continues to use the main library directory (`LIB_DIR`) for organise; video uploads go to `IMPORT_DIR`.
 
 ---
 
