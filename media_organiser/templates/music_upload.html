@@ -1,0 +1,1818 @@
+{% extends "base_upload.html" %}
+
+{% block title %}Media Organiser — Music Upload{% endblock %}
+
+{% block subtitle %}Upload audio, analyse metadata, fix ID3 tags, and export high-quality MP3s to the music library.{% endblock %}
+
+{% block base_styles_extra %}
+  {{ super() }}
+  #form {
+    width: 100%;
+    overflow: auto;
+  }
+  .zone {
+    width: 100%;
+    min-height: 14rem;
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 2rem;
+    transition: border-color 0.2s, background 0.2s;
+    cursor: pointer;
+  }
+  .zone:hover,
+  .zone.dragover {
+    border-color: var(--accent);
+    background: rgba(63, 185, 80, 0.06);
+  }
+  .zone input[type="file"] {
+    display: none;
+  }
+  .zone .icon {
+    font-size: 2.5rem;
+    opacity: 0.7;
+  }
+  .zone .prompt {
+    font-size: 0.9375rem;
+    color: var(--muted);
+    text-align: center;
+  }
+  .zone .prompt strong {
+    color: var(--text);
+  }
+  .linkBtn {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font: inherit;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+  }
+  .linkBtn:hover {
+    color: var(--accent-dim);
+  }
+  .exts {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 0.5rem;
+    display: block;
+    text-align: center;
+  }
+  .exts span {
+    color: var(--accent);
+  }
+  .feedback {
+    margin-top: 1.5rem;
+    width: 100%;
+    font-size: 0.875rem;
+  }
+  .feedback.success {
+    color: var(--accent);
+  }
+  .feedback.error {
+    color: var(--danger);
+  }
+  .feedback ul {
+    margin: 0.25rem 0 0 1rem;
+    padding: 0;
+  }
+  .folder-browser {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 18, 22, 0.95);
+    z-index: 1000;
+    padding: 2rem;
+    overflow: auto;
+  }
+  .folder-browser.active {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  .browser-window {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 60rem;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+  .browser-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .browser-header h2 {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .browser-close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background 0.2s, color 0.2s;
+  }
+  .browser-close:hover {
+    background: var(--border);
+    color: var(--text);
+  }
+  .browser-content {
+    flex: 1;
+    overflow: auto;
+    padding: 1rem;
+  }
+  .browser-breadcrumb {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .breadcrumb-item {
+    cursor: pointer;
+    color: var(--accent);
+    transition: color 0.2s;
+  }
+  .breadcrumb-item:hover {
+    color: var(--accent-dim);
+  }
+  .breadcrumb-separator {
+    color: var(--muted);
+  }
+  .file-tree {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .file-tree-item {
+    padding: 0.5rem 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border-radius: 6px;
+    transition: background 0.2s;
+    cursor: pointer;
+  }
+  .file-tree-item:hover {
+    background: rgba(63, 185, 80, 0.08);
+  }
+  .file-tree-item input[type="checkbox"] {
+    width: 1.125rem;
+    height: 1.125rem;
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
+  .file-tree-item-label {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9375rem;
+    color: var(--text);
+  }
+  .file-icon {
+    font-size: 1.125rem;
+    width: 1.25rem;
+    text-align: center;
+  }
+  .file-name {
+    flex: 1;
+  }
+  .file-size {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  .folder-item {
+    font-weight: 500;
+  }
+  .browser-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+  }
+  .selected-count {
+    font-size: 0.875rem;
+    color: var(--muted);
+  }
+  .browser-actions {
+    display: flex;
+    gap: 0.75rem;
+  }
+  .browser-btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .browser-btn-primary {
+    background: var(--accent);
+    color: var(--bg);
+  }
+  .browser-btn-primary:hover {
+    background: var(--accent-dim);
+  }
+  .browser-btn-secondary {
+    background: var(--border);
+    color: var(--text);
+  }
+  .browser-btn-secondary:hover {
+    background: #353b47;
+  }
+  .upload-progress {
+    display: none;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .upload-progress.active {
+    display: block;
+  }
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text);
+  }
+  .progress-status {
+    font-family: "JetBrains Mono", monospace;
+    color: var(--muted);
+  }
+  .progress-bar-container {
+    width: 100%;
+    height: 8px;
+    background: var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    width: 0%;
+  }
+  .progress-bar-fill::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.2),
+      transparent
+    );
+    animation: shimmer 1.5s infinite;
+  }
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  .progress-details {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: "JetBrains Mono", monospace;
+  }
+  .layout-two-column {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr);
+    gap: 1.5rem;
+  }
+  .page-shell {
+    max-width: 100%;
+    align-items: stretch;
+  }
+  .tracks-panel {
+    width: 100%;
+    max-width: 100%;
+    margin-top: 2rem;
+    background: var(--surface);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    padding: 1rem 1.25rem 0.75rem 1.25rem;
+  }
+  .tracks-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+  .tracks-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+  .tracks-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .tracks-btn {
+    padding: 0.4rem 0.9rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: #11141b;
+    color: var(--text);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+  .tracks-btn-primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--bg);
+  }
+  .tracks-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .tracks-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+  }
+  table.tracks-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+  }
+  table.tracks-table th:nth-child(2),
+  table.tracks-table td:nth-child(2) {
+    min-width: 14rem; /* Title */
+  }
+  table.tracks-table th:nth-child(3),
+  table.tracks-table td:nth-child(3) {
+    min-width: 10rem; /* Artist */
+  }
+  table.tracks-table th:nth-child(4),
+  table.tracks-table td:nth-child(4) {
+    min-width: 10rem; /* Album */
+  }
+  table.tracks-table th:nth-child(5),
+  table.tracks-table td:nth-child(5) {
+    min-width: 10rem; /* Album */
+  }
+  table.tracks-table th:nth-child(6),
+  table.tracks-table td:nth-child(6) {
+    min-width: 10rem; /* Album */
+  }
+  .mb-suggestion-row {
+    background: rgba(63, 185, 80, 0.03);
+  }
+  .mb-suggestion-label {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+  }
+  .mb-suggestion-cell {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .mb-suggestion-actions {
+    display: inline-flex;
+    gap: 0.25rem;
+    margin-left: 0.4rem;
+  }
+  .mb-suggestion-btn {
+    padding: 0 0.3rem;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: #11141b;
+    color: var(--text);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.7rem;
+    cursor: pointer;
+  }
+  .mb-suggestion-btn:hover {
+    background: var(--border);
+  }
+  .mb-suggestion-cell select {
+    font-size: 0.75rem;
+    color: var(--text);
+    background: #11141b;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.2rem 0.4rem;
+    min-width: 8rem;
+    max-width: 14rem;
+  }
+  .mb-suggestion-cell select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  table.tracks-table thead {
+    background: #151924;
+  }
+  table.tracks-table th,
+  table.tracks-table td {
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  table.tracks-table th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  table.tracks-table tbody tr:hover {
+    background: rgba(63, 185, 80, 0.05);
+  }
+  .cell-path {
+    max-width: 18rem;
+    text-overflow: ellipsis;
+    overflow: hidden;
+  }
+  .cell-editable input {
+    width: 100%;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    padding: 0.15rem 0.3rem;
+    background: #11141b;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 0.78rem;
+  }
+  .cell-quality-ok {
+    color: var(--accent);
+  }
+  .cell-quality-warn {
+    color: #e3b341;
+  }
+  .cell-quality-bad {
+    color: var(--danger);
+  }
+  .row-rejected {
+    opacity: 0.5;
+  }
+  .row-rejected td {
+    background: #2b1111;
+  }
+  .cell-actions button {
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: #11141b;
+    color: var(--text);
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.75rem;
+    cursor: pointer;
+    margin-right: 0.25rem;
+  }
+  .cell-actions button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .audio-player-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 0.65rem 1.5rem;
+    background: rgba(15, 18, 22, 0.98);
+    border-top: 1px solid var(--border);
+    display: none;
+    z-index: 900;
+  }
+  .audio-player-bar.visible {
+    display: flex;
+  }
+  .audio-player-inner {
+    width: 100%;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .audio-player-meta {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .audio-player-title {
+    font-size: 0.85rem;
+  }
+  .audio-player-artist {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .audio-player-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .audio-player-time {
+    font-family: "JetBrains Mono", monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .audio-player-scrubber {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .audio-player-scrubber input[type="range"] {
+    width: 100%;
+  }
+{% endblock %}
+
+{% block content %}
+  <div class="layout-two-column">
+    <form id="form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+      <div class="zone" id="zone" role="button" tabindex="0">
+        <input type="file" name="files" id="files" multiple>
+        <input type="file" name="folder" id="folder" webkitdirectory style="display:none">
+        <span class="icon" aria-hidden="true">📁</span>
+        <span class="prompt">
+          <strong>Drop audio files or folders</strong> or
+          <button type="button" class="linkBtn" id="pickFolder">choose folder</button> /
+          <button type="button" class="linkBtn" id="pickFiles">choose files</button>
+        </span>
+        <span class="exts">Audio types recommended • Folder upload preserves structure</span>
+      </div>
+    </form>
+  </div>
+
+  <div class="feedback" id="feedback" aria-live="polite"></div>
+
+  <div class="folder-browser" id="folderBrowser">
+    <div class="browser-window">
+      <div class="browser-header">
+        <h2>Select Files to Upload</h2>
+        <button class="browser-close" id="browserClose" aria-label="Close">×</button>
+      </div>
+      <div class="browser-breadcrumb" id="breadcrumb"></div>
+      <div class="browser-content" id="browserContent"></div>
+      <div class="browser-footer">
+        <div class="selected-count" id="selectedCount">0 files selected</div>
+        <div class="browser-actions">
+          <button class="browser-btn browser-btn-secondary" id="cancelBtn">Cancel</button>
+          <button class="browser-btn browser-btn-primary" id="confirmBtn">Upload Selected</button>
+        </div>
+      </div>
+      <div class="upload-progress" id="uploadProgress">
+        <div class="progress-header">
+          <span>Uploading files...</span>
+          <span class="progress-status" id="progressStatus">0%</span>
+        </div>
+        <div class="progress-bar-container">
+          <div class="progress-bar-fill" id="progressBarFill"></div>
+        </div>
+        <div class="progress-details" id="progressDetails">Preparing upload...</div>
+      </div>
+    </div>
+  </div>
+
+  <section class="tracks-panel" id="tracksPanel" style="display: none;">
+    <div class="tracks-header">
+      <div class="tracks-title">Uploaded tracks</div>
+      <div class="tracks-actions">
+        <button class="tracks-btn" type="button" id="refreshMetadataBtn">Re-scan metadata</button>
+        <button class="tracks-btn tracks-btn-primary" type="button" id="applyTagsBtn" disabled>Apply ID3 tags</button>
+      </div>
+    </div>
+    <div class="tracks-table-wrapper">
+      <table class="tracks-table" id="tracksTable">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Title</th>
+            <th>Artist</th>
+            <th>Album</th>
+            <th>#</th>
+            <th>Year</th>
+            <th>Bitrate</th>
+            <th>Sample</th>
+            <th>Duration</th>
+            <th>Quality</th>
+            <th>MusicBrainz</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="tracksTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="audio-player-bar" id="audioPlayerBar">
+    <div class="audio-player-inner">
+      <button class="tracks-btn" type="button" id="audioPlayPauseBtn">Play</button>
+      <div class="audio-player-meta">
+        <div class="audio-player-title" id="audioTitle">—</div>
+        <div class="audio-player-artist" id="audioArtist">—</div>
+      </div>
+      <div class="audio-player-scrubber">
+        <span class="audio-player-time" id="audioCurrentTime">0:00</span>
+        <input type="range" id="audioSeek" min="0" max="100" value="0">
+        <span class="audio-player-time" id="audioDuration">0:00</span>
+      </div>
+    </div>
+    <audio id="audioElement"></audio>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const zone = document.getElementById("zone");
+    const filesInput = document.getElementById("files");
+    const folderInput = document.getElementById("folder");
+    const feedback = document.getElementById("feedback");
+    const form = document.getElementById("form");
+    const folderBrowser = document.getElementById("folderBrowser");
+    const browserContent = document.getElementById("browserContent");
+    const breadcrumb = document.getElementById("breadcrumb");
+    const selectedCount = document.getElementById("selectedCount");
+    const browserClose = document.getElementById("browserClose");
+    const cancelBtn = document.getElementById("cancelBtn");
+    const confirmBtn = document.getElementById("confirmBtn");
+    const uploadProgress = document.getElementById("uploadProgress");
+    const progressBarFill = document.getElementById("progressBarFill");
+    const progressStatus = document.getElementById("progressStatus");
+    const progressDetails = document.getElementById("progressDetails");
+
+    const tracksPanel = document.getElementById("tracksPanel");
+    const tracksTableBody = document.getElementById("tracksTableBody");
+    const refreshMetadataBtn = document.getElementById("refreshMetadataBtn");
+    const applyTagsBtn = document.getElementById("applyTagsBtn");
+
+    const audioPlayerBar = document.getElementById("audioPlayerBar");
+    const audioElement = document.getElementById("audioElement");
+    const audioPlayPauseBtn = document.getElementById("audioPlayPauseBtn");
+    const audioTitle = document.getElementById("audioTitle");
+    const audioArtist = document.getElementById("audioArtist");
+    const audioCurrentTime = document.getElementById("audioCurrentTime");
+    const audioDuration = document.getElementById("audioDuration");
+    const audioSeek = document.getElementById("audioSeek");
+
+    let folderTree = null;
+    let currentPath = [];
+    let selectedFiles = new Set();
+    let folderFileList = null;
+    let currentUploadXHR = null;
+
+    let trackState = [];
+    let lastSavedAudioPaths = [];
+
+    function isHidden(name) {
+      const parts = name.split('/');
+      return parts.some(part => part.startsWith('.'));
+    }
+
+    function isExtendedAttribute(path) {
+      return path.includes('::EA::') || path.includes('::EA');
+    }
+
+    function buildFileTree(fileList) {
+      const tree = {};
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const path = file.webkitRelativePath || file.name;
+        if (!path) continue;
+        const parts = path.split('/').filter(p => p.length > 0);
+        if (parts.length === 0) continue;
+        let current = tree;
+        for (let j = 0; j < parts.length; j++) {
+          const part = parts[j];
+          if (j === parts.length - 1) {
+            current[part] = { type: 'file', file: file, path: path };
+          } else {
+            if (!current[part]) {
+              current[part] = { type: 'folder', children: {} };
+            }
+            current = current[part].children;
+          }
+        }
+      }
+      return tree;
+    }
+
+    function formatSize(bytes) {
+      if (bytes === 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+    }
+
+    function formatTime(seconds) {
+      if (!isFinite(seconds)) return "0:00";
+      const s = Math.floor(seconds);
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      return m + ":" + (r < 10 ? "0" + r : r);
+    }
+
+    function getCurrentFolder() {
+      if (!folderTree) return null;
+      let current = folderTree;
+      for (const part of currentPath) {
+        if (current && current[part] && current[part].type === 'folder') {
+          current = current[part].children;
+        } else {
+          return null;
+        }
+      }
+      return current;
+    }
+
+    // Determine selection state of a folder subtree:
+    // 'all'   => all visible children selected
+    // 'none'  => no visible children selected
+    // 'some'  => mix of selected/unselected (partial)
+    function getFolderSelectionState(folderNode) {
+      if (!folderNode || !folderNode.children) return 'none';
+
+      let hasSelected = false;
+      let hasUnselected = false;
+
+      Object.keys(folderNode.children).forEach(name => {
+        const child = folderNode.children[name];
+        // Ignore hidden entries entirely for selection purposes
+        if (isHidden(name)) {
+          return;
+        }
+
+        if (child.type === 'file') {
+          const selected = selectedFiles.has(child.path);
+          if (selected) {
+            hasSelected = true;
+          } else {
+            hasUnselected = true;
+          }
+        } else if (child.type === 'folder') {
+          const state = getFolderSelectionState(child);
+          if (state === 'all') {
+            hasSelected = true;
+          } else if (state === 'none') {
+            hasUnselected = true;
+          } else if (state === 'some') {
+            hasSelected = true;
+            hasUnselected = true;
+          }
+        }
+      });
+
+      if (!hasSelected && !hasUnselected) {
+        // Folder is effectively empty (or only has hidden children)
+        return 'none';
+      }
+      if (hasSelected && !hasUnselected) return 'all';
+      if (!hasSelected && hasUnselected) return 'none';
+      return 'some';
+    }
+
+    function renderBreadcrumb() {
+      breadcrumb.innerHTML = '';
+      const items = ['Root', ...currentPath];
+      items.forEach((item, index) => {
+        if (index > 0) {
+          const sep = document.createElement('span');
+          sep.className = 'breadcrumb-separator';
+          sep.textContent = '/';
+          breadcrumb.appendChild(sep);
+        }
+        const span = document.createElement('span');
+        span.className = 'breadcrumb-item';
+        span.textContent = item;
+        if (index < items.length - 1) {
+          span.onclick = () => {
+            currentPath = currentPath.slice(0, index);
+            renderFolder();
+          };
+        }
+        breadcrumb.appendChild(span);
+      });
+    }
+
+    function renderFolder() {
+      const current = getCurrentFolder();
+      if (!current) return;
+
+      renderBreadcrumb();
+
+      const items = Object.keys(current).sort((a, b) => {
+        const aIsFolder = current[a].type === 'folder';
+        const bIsFolder = current[b].type === 'folder';
+        if (aIsFolder && !bIsFolder) return -1;
+        if (!aIsFolder && bIsFolder) return 1;
+        return a.localeCompare(b);
+      });
+
+      const ul = document.createElement('ul');
+      ul.className = 'file-tree';
+
+      items.forEach(name => {
+        const item = current[name];
+        const li = document.createElement('li');
+        li.className = 'file-tree-item';
+        if (item.type === 'folder') {
+          li.classList.add('folder-item');
+        }
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        const itemId = item.path || (currentPath.length > 0 ? currentPath.join('/') + '/' + name : name);
+        checkbox.id = `file-${itemId}`;
+        checkbox.indeterminate = false;
+
+        const hidden = isHidden(name);
+
+        if (item.type === 'file') {
+          if (hidden) {
+            selectedFiles.delete(item.path);
+            checkbox.checked = false;
+          } else {
+            checkbox.checked = selectedFiles.has(item.path);
+          }
+          checkbox.onchange = (e) => {
+            if (e.target.checked) {
+              selectedFiles.add(item.path);
+            } else {
+              selectedFiles.delete(item.path);
+            }
+            // Re-render so parent folders update (including partial state)
+            renderFolder();
+          };
+        } else {
+          // Folder checkbox reflects aggregate selection of its visible descendants
+          const state = hidden ? 'none' : getFolderSelectionState(item);
+          checkbox.checked = state === 'all';
+          checkbox.indeterminate = state === 'some';
+
+          checkbox.onchange = (e) => {
+            if (hidden) {
+              checkbox.checked = false;
+              checkbox.indeterminate = false;
+              return;
+            }
+            toggleFolderSelection(item, e.target.checked);
+            // Re-render so this folder and its ancestors show correct state
+            renderFolder();
+          };
+        }
+
+        const label = document.createElement('div');
+        label.className = 'file-tree-item-label';
+
+        const icon = document.createElement('span');
+        icon.className = 'file-icon';
+        icon.textContent = item.type === 'folder' ? '📁' : '📄';
+
+        const fileName = document.createElement('span');
+        fileName.className = 'file-name';
+        fileName.textContent = name;
+
+        label.appendChild(icon);
+        label.appendChild(fileName);
+
+        if (item.type === 'file') {
+          const size = document.createElement('span');
+          size.className = 'file-size';
+          size.textContent = formatSize(item.file.size);
+          label.appendChild(size);
+        }
+
+        li.appendChild(checkbox);
+        li.appendChild(label);
+
+        if (item.type === 'folder') {
+          li.onclick = (e) => {
+            if (e.target.type !== 'checkbox') {
+              currentPath.push(name);
+              renderFolder();
+            }
+          };
+        }
+
+        ul.appendChild(li);
+      });
+
+      browserContent.innerHTML = '';
+      browserContent.appendChild(ul);
+      updateSelectedCount();
+    }
+
+    function toggleFolderSelection(folderItem, checked) {
+      function traverse(node) {
+        if (!node || !node.children) return;
+        Object.keys(node.children).forEach(name => {
+          const child = node.children[name];
+          if (isHidden(name)) {
+            return;
+          }
+          if (child.type === 'file') {
+            if (checked) {
+              selectedFiles.add(child.path);
+            } else {
+              selectedFiles.delete(child.path);
+            }
+          } else if (child.type === 'folder') {
+            traverse(child);
+          }
+        });
+      }
+      traverse(folderItem);
+    }
+
+    function updateSelectedCount() {
+      const count = selectedFiles.size;
+      selectedCount.textContent = `${count} file${count !== 1 ? 's' : ''} selected`;
+      confirmBtn.disabled = count === 0;
+    }
+
+    function showFolderBrowser(fileList) {
+      if (!fileList || fileList.length === 0) {
+        return;
+      }
+      folderFileList = fileList;
+      folderTree = buildFileTree(fileList);
+      currentPath = [];
+      selectedFiles.clear();
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const path = file.webkitRelativePath || file.name;
+        if (!isHidden(path)) {
+          selectedFiles.add(path);
+        }
+      }
+      renderFolder();
+      folderBrowser.classList.add('active');
+      confirmBtn.disabled = selectedFiles.size === 0;
+    }
+
+    function hideFolderBrowser() {
+      if (currentUploadXHR) {
+        currentUploadXHR.abort();
+        currentUploadXHR = null;
+      }
+      folderBrowser.classList.remove('active');
+      uploadProgress.classList.remove('active');
+      folderTree = null;
+      currentPath = [];
+      selectedFiles.clear();
+      folderFileList = null;
+      folderInput.value = '';
+      confirmBtn.disabled = false;
+      cancelBtn.disabled = false;
+    }
+
+    document.getElementById("pickFiles").addEventListener("click", (e) => {
+      e.stopPropagation();
+      folderInput.value = "";
+      filesInput.click();
+    });
+
+    document.getElementById("pickFolder").addEventListener("click", (e) => {
+      e.stopPropagation();
+      filesInput.value = "";
+      folderInput.click();
+    });
+
+    folderInput.addEventListener("change", (e) => {
+      if (e.target.files.length > 0) {
+        showFolderBrowser(e.target.files);
+      }
+    });
+
+    browserClose.addEventListener("click", () => {
+      if (currentUploadXHR) {
+        currentUploadXHR.abort();
+        currentUploadXHR = null;
+      }
+      hideFolderBrowser();
+    });
+    cancelBtn.addEventListener("click", () => {
+      if (currentUploadXHR) {
+        currentUploadXHR.abort();
+        currentUploadXHR = null;
+      }
+      hideFolderBrowser();
+    });
+
+    async function handleUploadResult(allSaved, allRejected, allUnselected) {
+      let feedbackHTML = "";
+
+      if (allSaved.length > 0) {
+        feedback.className = "feedback success";
+        feedbackHTML += `Accepted ${allSaved.length} file${allSaved.length !== 1 ? 's' : ''}: <ul><li>` + allSaved.join("</li><li>") + "</li></ul>";
+      }
+      if (allUnselected.length > 0) {
+        feedback.className = feedback.className || "feedback";
+        if (feedbackHTML) feedbackHTML += "<br>";
+        feedbackHTML += `Unselected ${allUnselected.length} file${allUnselected.length !== 1 ? 's' : ''}: <ul><li>` + allUnselected.join("</li><li>") + "</li></ul>";
+      }
+      if (allRejected.length > 0) {
+        feedback.className = feedback.className || "feedback error";
+        if (feedbackHTML) feedbackHTML += "<br>";
+        feedbackHTML += `Rejected ${allRejected.length} file${allRejected.length !== 1 ? 's' : ''}: <ul><li>` + allRejected.join("</li><li>") + "</li></ul>";
+      }
+      if (feedbackHTML) {
+        feedback.innerHTML = feedbackHTML;
+      } else {
+        feedback.textContent = "No files uploaded.";
+      }
+
+      const audioPaths = allSaved.filter(p => {
+        const lower = p.toLowerCase();
+        return lower.endsWith(".mp3") || lower.endsWith(".flac") || lower.endsWith(".wav") || lower.endsWith(".m4a") || lower.endsWith(".aac") || lower.endsWith(".ogg");
+      });
+      if (audioPaths.length > 0) {
+        lastSavedAudioPaths = audioPaths;
+        await fetchAndRenderMetadata(audioPaths);
+      }
+    }
+
+    confirmBtn.addEventListener("click", async () => {
+      if (selectedFiles.size === 0) return;
+
+      uploadProgress.classList.add("active");
+      progressBarFill.style.width = "0%";
+      progressStatus.textContent = "0%";
+      progressDetails.textContent = "Preparing upload...";
+
+      confirmBtn.disabled = true;
+      cancelBtn.disabled = true;
+      feedback.textContent = "";
+      feedback.className = "feedback";
+
+      const fileListToUse = folderFileList || folderInput.files;
+      const selectedFileArray = [];
+      for (let i = 0; i < fileListToUse.length; i++) {
+        const file = fileListToUse[i];
+        const path = file.webkitRelativePath || file.name;
+        if (selectedFiles.has(path) && !isExtendedAttribute(path)) {
+          selectedFileArray.push({ file, path });
+        }
+      }
+
+      let totalSize = 0;
+      selectedFileArray.forEach(({ file }) => {
+        totalSize += file.size;
+      });
+
+      progressDetails.textContent = `Uploading ${selectedFileArray.length} file${selectedFileArray.length !== 1 ? 's' : ''} (${formatSize(totalSize)})...`;
+
+      let uploadedBytes = 0;
+      const allSaved = [];
+      const allRejected = [];
+      const allUnselected = [];
+      let uploadCancelled = false;
+
+      const allFilesInFolder = new Set();
+      for (let i = 0; i < fileListToUse.length; i++) {
+        const file = fileListToUse[i];
+        const path = file.webkitRelativePath || file.name;
+        allFilesInFolder.add(path);
+      }
+      allFilesInFolder.forEach(path => {
+        if (!selectedFiles.has(path) && !isExtendedAttribute(path)) {
+          allUnselected.push(path);
+        }
+      });
+
+      const filesActuallySent = new Set();
+      selectedFileArray.forEach(({ path }) => {
+        filesActuallySent.add(path);
+      });
+
+      for (let i = 0; i < selectedFileArray.length; i++) {
+        if (uploadCancelled) break;
+        const { file, path } = selectedFileArray[i];
+        const currentFileIndex = i + 1;
+        try {
+          await new Promise((resolve, reject) => {
+            const fd = new FormData();
+            fd.append("files", file);
+            fd.append("paths", path);
+
+            const xhr = new XMLHttpRequest();
+            currentUploadXHR = xhr;
+
+            xhr.upload.addEventListener("progress", (e) => {
+              if (e.lengthComputable && !uploadCancelled) {
+                const currentFileProgress = e.loaded;
+                const totalUploaded = uploadedBytes + currentFileProgress;
+                const percentComplete = Math.round((totalUploaded / totalSize) * 100);
+                progressBarFill.style.width = percentComplete + "%";
+                progressStatus.textContent = percentComplete + "%";
+                const uploadedSize = formatSize(totalUploaded);
+                const totalSizeStr = formatSize(totalSize);
+                const fileName = path.split('/').pop();
+                progressDetails.textContent = `[${currentFileIndex}/${selectedFileArray.length}] Uploading ${fileName}... ${uploadedSize} / ${totalSizeStr}`;
+              }
+            });
+
+            xhr.addEventListener("load", () => {
+              currentUploadXHR = null;
+              uploadedBytes += file.size;
+              const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
+              progressBarFill.style.width = percentComplete + "%";
+              progressStatus.textContent = percentComplete + "%";
+
+              if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                  const data = JSON.parse(xhr.responseText);
+                  if (data.saved && data.saved.length > 0) {
+                    data.saved.forEach(savedPath => {
+                      if (!isExtendedAttribute(savedPath)) {
+                        allSaved.push(savedPath);
+                      }
+                    });
+                  }
+                  if (data.rejected && data.rejected.length > 0) {
+                    data.rejected.forEach(rejectedPath => {
+                      const basePath = rejectedPath.split(' (error:')[0].split(' (Network error)')[0].split(' (Upload error)')[0];
+                      if (isExtendedAttribute(basePath)) {
+                        return;
+                      }
+                      const matchesCurrentFile = basePath === path || filesActuallySent.has(basePath);
+                      if (matchesCurrentFile) {
+                        allRejected.push(rejectedPath);
+                      }
+                    });
+                  }
+                  resolve();
+                } catch (err) {
+                  if (!isExtendedAttribute(path)) {
+                    allRejected.push(path);
+                  }
+                  resolve();
+                }
+              } else {
+                try {
+                  const data = JSON.parse(xhr.responseText);
+                  if (!isExtendedAttribute(path)) {
+                    allRejected.push(path + (data.error ? ` (${data.error})` : ''));
+                  }
+                } catch (err) {
+                  if (!isExtendedAttribute(path)) {
+                    allRejected.push(path);
+                  }
+                }
+                resolve();
+              }
+            });
+
+            xhr.addEventListener("error", () => {
+              currentUploadXHR = null;
+              uploadedBytes += file.size;
+              const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
+              progressBarFill.style.width = percentComplete + "%";
+              progressStatus.textContent = percentComplete + "%";
+              if (!isExtendedAttribute(path)) {
+                allRejected.push(path + " (Network error)");
+              }
+              resolve();
+            });
+
+            xhr.addEventListener("abort", () => {
+              currentUploadXHR = null;
+              uploadCancelled = true;
+              reject(new Error("Upload cancelled"));
+            });
+
+            xhr.open("POST", "{{ url_for('upload') }}");
+            xhr.send(fd);
+          });
+        } catch (err) {
+          if (err.message === "Upload cancelled") {
+            break;
+          }
+          uploadedBytes += file.size;
+          const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
+          progressBarFill.style.width = percentComplete + "%";
+          progressStatus.textContent = percentComplete + "%";
+          if (!isExtendedAttribute(path)) {
+            allRejected.push(path + " (Upload error)");
+          }
+        }
+      }
+
+      if (!uploadCancelled) {
+        progressBarFill.style.width = "100%";
+        progressStatus.textContent = "100%";
+      }
+
+      currentUploadXHR = null;
+      uploadProgress.classList.remove("active");
+
+      if (uploadCancelled) {
+        feedback.className = "feedback";
+        feedback.textContent = "Upload cancelled.";
+      } else {
+        await handleUploadResult(allSaved, allRejected, allUnselected);
+      }
+
+      hideFolderBrowser();
+      filesInput.value = "";
+      folderInput.value = "";
+      confirmBtn.disabled = false;
+      cancelBtn.disabled = false;
+    });
+
+    zone.addEventListener("click", (e) => {
+      if (!e.target.closest(".linkBtn")) {
+        folderInput.click();
+      }
+    });
+    zone.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        folderInput.click();
+      }
+    });
+
+    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragover"); });
+    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.classList.remove("dragover");
+      folderInput.value = "";
+      filesInput.files = e.dataTransfer.files;
+      simpleFileUpload(filesInput.files);
+    });
+
+    form.addEventListener("submit", async (e) => {
+      if (folderInput.files.length > 0) {
+        e.preventDefault();
+        return;
+      }
+      const fileList = filesInput.files;
+      if (!fileList.length) { e.preventDefault(); return; }
+      e.preventDefault();
+      await simpleFileUpload(fileList);
+    });
+
+    async function simpleFileUpload(fileList) {
+      uploadProgress.classList.add("active");
+      progressBarFill.style.width = "0%";
+      progressStatus.textContent = "0%";
+      progressDetails.textContent = "Preparing upload...";
+
+      feedback.textContent = "";
+      feedback.className = "feedback";
+
+      const fileArray = [];
+      for (let i = 0; i < fileList.length; i++) {
+        const f = fileList[i];
+        if (!f.name) continue;
+        fileArray.push({ file: f, path: f.name });
+      }
+
+      let totalSize = 0;
+      fileArray.forEach(({ file }) => {
+        totalSize += file.size;
+      });
+
+      progressDetails.textContent = `Uploading ${fileArray.length} file${fileArray.length !== 1 ? 's' : ''} (${formatSize(totalSize)})...`;
+
+      let uploadedBytes = 0;
+      const allSaved = [];
+      const allRejected = [];
+      const allUnselected = [];
+      let uploadCancelled = false;
+
+      for (let i = 0; i < fileArray.length; i++) {
+        if (uploadCancelled) break;
+        const { file, path } = fileArray[i];
+        const currentFileIndex = i + 1;
+        try {
+          await new Promise((resolve, reject) => {
+            const fd = new FormData();
+            fd.append("files", file);
+            fd.append("paths", path);
+
+            const xhr = new XMLHttpRequest();
+            currentUploadXHR = xhr;
+
+            xhr.upload.addEventListener("progress", (e) => {
+              if (e.lengthComputable && !uploadCancelled) {
+                const currentFileProgress = e.loaded;
+                const totalUploaded = uploadedBytes + currentFileProgress;
+                const percentComplete = Math.round((totalUploaded / totalSize) * 100);
+                progressBarFill.style.width = percentComplete + "%";
+                progressStatus.textContent = percentComplete + "%";
+                const uploadedSize = formatSize(totalUploaded);
+                const totalSizeStr = formatSize(totalSize);
+                progressDetails.textContent = `[${currentFileIndex}/${fileArray.length}] Uploading ${path}... ${uploadedSize} / ${totalSizeStr}`;
+              }
+            });
+
+            xhr.addEventListener("load", () => {
+              currentUploadXHR = null;
+              uploadedBytes += file.size;
+              const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
+              progressBarFill.style.width = percentComplete + "%";
+              progressStatus.textContent = percentComplete + "%";
+
+              if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                  const data = JSON.parse(xhr.responseText);
+                  if (data.saved && data.saved.length) {
+                    allSaved.push(...data.saved);
+                  }
+                  if (data.rejected && data.rejected.length) {
+                    allRejected.push(...data.rejected);
+                  }
+                  resolve();
+                } catch (err) {
+                  allRejected.push(path);
+                  resolve();
+                }
+              } else {
+                try {
+                  const data = JSON.parse(xhr.responseText);
+                  allRejected.push(path + (data.error ? ` (${data.error})` : ''));
+                } catch (err) {
+                  allRejected.push(path);
+                }
+                resolve();
+              }
+            });
+
+            xhr.addEventListener("error", () => {
+              currentUploadXHR = null;
+              uploadedBytes += file.size;
+              const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
+              progressBarFill.style.width = percentComplete + "%";
+              progressStatus.textContent = percentComplete + "%";
+              allRejected.push(path + " (Network error)");
+              resolve();
+            });
+
+            xhr.addEventListener("abort", () => {
+              currentUploadXHR = null;
+              uploadCancelled = true;
+              reject(new Error("Upload cancelled"));
+            });
+
+            xhr.open("POST", "{{ url_for('upload') }}");
+            xhr.send(fd);
+          });
+        } catch (err) {
+          if (err.message === "Upload cancelled") {
+            break;
+          }
+          uploadedBytes += file.size;
+          const percentComplete = Math.round((uploadedBytes / totalSize) * 100);
+          progressBarFill.style.width = percentComplete + "%";
+          progressStatus.textContent = percentComplete + "%";
+          allRejected.push(path + " (Upload error)");
+        }
+      }
+
+      if (!uploadCancelled) {
+        progressBarFill.style.width = "100%";
+        progressStatus.textContent = "100%";
+      }
+
+      currentUploadXHR = null;
+      uploadProgress.classList.remove("active");
+
+      if (uploadCancelled) {
+        feedback.className = "feedback";
+        feedback.textContent = "Upload cancelled.";
+      } else {
+        await handleUploadResult(allSaved, allRejected, allUnselected);
+      }
+
+      filesInput.value = "";
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && folderBrowser.classList.contains("active")) {
+        hideFolderBrowser();
+      }
+    });
+
+    async function fetchAndRenderMetadata(paths) {
+      try {
+        const resp = await fetch("{{ url_for('music_metadata') }}", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ paths }),
+        });
+        if (!resp.ok) {
+          return;
+        }
+        const data = await resp.json();
+        trackState = data.tracks || [];
+        renderTracksTable();
+      } catch (err) {
+        console.error("Failed to fetch music metadata", err);
+      }
+    }
+
+    function renderTracksTable() {
+      if (!trackState || trackState.length === 0) {
+        tracksPanel.style.display = "none";
+        applyTagsBtn.disabled = true;
+        return;
+      }
+      tracksPanel.style.display = "block";
+      tracksTableBody.innerHTML = "";
+
+      let anyEditable = false;
+
+      trackState.forEach((track, index) => {
+        const tr = document.createElement("tr");
+        tr.dataset.index = index;
+        if (track.rejected_reason) {
+          tr.classList.add("row-rejected");
+        }
+
+        const tdPath = document.createElement("td");
+        tdPath.className = "cell-path";
+        tdPath.textContent = track.path;
+        tr.appendChild(tdPath);
+
+        function makeEditableCell(field) {
+          const td = document.createElement("td");
+          td.className = "cell-editable";
+          const input = document.createElement("input");
+          input.value = track[field] || "";
+          input.addEventListener("input", (e) => {
+            track[field] = e.target.value;
+          });
+          td.appendChild(input);
+          return td;
+        }
+
+        tr.appendChild(makeEditableCell("title"));
+        tr.appendChild(makeEditableCell("artist"));
+        tr.appendChild(makeEditableCell("album"));
+        tr.appendChild(makeEditableCell("track_number"));
+        tr.appendChild(makeEditableCell("year"));
+
+        const tdBitrate = document.createElement("td");
+        tdBitrate.textContent = track.bitrate_kbps ? track.bitrate_kbps + " kbps" : "—";
+        tr.appendChild(tdBitrate);
+
+        const tdSample = document.createElement("td");
+        tdSample.textContent = track.sample_rate ? track.sample_rate + " Hz" : "—";
+        tr.appendChild(tdSample);
+
+        const tdDuration = document.createElement("td");
+        tdDuration.textContent = track.duration_seconds ? formatTime(track.duration_seconds) : "—";
+        tr.appendChild(tdDuration);
+
+        const tdQuality = document.createElement("td");
+        let qClass = "";
+        if (track.quality_status === "ok") {
+          qClass = "cell-quality-ok";
+        } else if (track.quality_status === "warn") {
+          qClass = "cell-quality-warn";
+        } else if (track.quality_status === "rejected") {
+          qClass = "cell-quality-bad";
+        }
+        tdQuality.className = qClass;
+        tdQuality.textContent = track.quality_message || "";
+        tr.appendChild(tdQuality);
+
+        const tdMB = document.createElement("td");
+        if (track.musicbrainz_id) {
+          tdMB.textContent = "Matched";
+          tdMB.title = "MusicBrainz ID: " + track.musicbrainz_id;
+          tdMB.style.cursor = "pointer";
+          tdMB.addEventListener("click", () => {
+            const url = "https://musicbrainz.org/recording/" + encodeURIComponent(track.musicbrainz_id);
+            window.open(url, "_blank");
+          });
+        } else if ((track.musicbrainz_suggestions && track.musicbrainz_suggestions.length > 0) ||
+            (track.musicbrainz_suggestion && track.musicbrainz_suggestion.id)) {
+          tdMB.textContent = "Suggested";
+          tdMB.title = "MusicBrainz suggestions available";
+        } else {
+          tdMB.textContent = track.musicbrainz_title ? "Matched" : "";
+        }
+        tr.appendChild(tdMB);
+
+        const tdActions = document.createElement("td");
+        tdActions.className = "cell-actions";
+        const playBtn = document.createElement("button");
+        playBtn.type = "button";
+        playBtn.textContent = "Play";
+        playBtn.disabled = !!track.rejected_reason;
+        playBtn.addEventListener("click", () => {
+          startPlayback(track);
+        });
+        tdActions.appendChild(playBtn);
+
+        const mbBtn = document.createElement("button");
+        mbBtn.type = "button";
+        mbBtn.textContent = "Find metadata";
+        mbBtn.disabled = !!track.rejected_reason;
+        mbBtn.addEventListener("click", () => {
+          findRecommendedMetadata(track);
+        });
+        tdActions.appendChild(mbBtn);
+
+        const transcodeBtn = document.createElement("button");
+        transcodeBtn.type = "button";
+        transcodeBtn.textContent = "Transcode";
+        transcodeBtn.disabled = track.quality_status !== "warn" && track.quality_status !== "needs_transcode";
+        transcodeBtn.addEventListener("click", () => {
+          transcodeTrack(track);
+        });
+        tdActions.appendChild(transcodeBtn);
+
+        tr.appendChild(tdActions);
+        tracksTableBody.appendChild(tr);
+
+        // Render MusicBrainz suggestion row (top 5 as dropdowns), if present
+        const suggestions = Array.isArray(track.musicbrainz_suggestions) && track.musicbrainz_suggestions.length > 0
+          ? track.musicbrainz_suggestions
+          : null;
+        if (suggestions) {
+          const fields = ["title", "artist", "album", "track_number", "year"];
+          const sugTr = document.createElement("tr");
+          sugTr.classList.add("mb-suggestion-row");
+
+          const labelTd = document.createElement("td");
+          labelTd.className = "mb-suggestion-label";
+          labelTd.textContent = "MusicBrainz (top " + suggestions.length + ")";
+          sugTr.appendChild(labelTd);
+
+          const selectedIdx = Math.max(-1, Math.min(
+            (track.musicbrainz_selected_index ?? 0),
+            suggestions.length - 1
+          ));
+          function makeSuggestionCell(field, label) {
+            const td = document.createElement("td");
+            td.className = "mb-suggestion-cell";
+            const select = document.createElement("select");
+            select.title = "Choose " + label + " from top matches";
+            const emptyOpt = document.createElement("option");
+            emptyOpt.value = "";
+            emptyOpt.textContent = "—";
+            select.appendChild(emptyOpt);
+            suggestions.forEach((s, idx) => {
+              const val = s[field];
+              const text = (val != null && val !== "") ? String(val) : ("(Match " + (idx + 1) + ")");
+              const opt = document.createElement("option");
+              opt.value = String(idx);
+              opt.textContent = text;
+              select.appendChild(opt);
+            });
+            select.selectedIndex = selectedIdx >= 0 ? selectedIdx + 1 : 0;
+
+            select.addEventListener("change", () => {
+              track.musicbrainz_selected_index = select.value === "" ? -1 : parseInt(select.value, 10);
+              renderTracksTable();
+            });
+
+            const actions = document.createElement("span");
+            actions.className = "mb-suggestion-actions";
+
+            const acceptBtn = document.createElement("button");
+            acceptBtn.type = "button";
+            acceptBtn.className = "mb-suggestion-btn";
+            acceptBtn.textContent = "✓";
+            acceptBtn.title = "Use this " + label.toLowerCase();
+            acceptBtn.addEventListener("click", () => {
+              const idx = select.value === "" ? -1 : parseInt(select.value, 10);
+              if (idx >= 0 && suggestions[idx]) {
+                const s = suggestions[idx];
+                track[field] = s[field] != null ? s[field] : "";
+                if (s.id) {
+                  track.musicbrainz_id = s.id;
+                }
+                if (s.title) {
+                  track.musicbrainz_title = s.title;
+                }
+                renderTracksTable();
+              }
+            });
+
+            const rejectBtn = document.createElement("button");
+            rejectBtn.type = "button";
+            rejectBtn.className = "mb-suggestion-btn";
+            rejectBtn.textContent = "✕";
+            rejectBtn.title = "Ignore " + label.toLowerCase();
+            rejectBtn.addEventListener("click", () => {
+              delete track.musicbrainz_suggestions;
+              delete track.musicbrainz_selected_index;
+              renderTracksTable();
+            });
+
+            actions.appendChild(acceptBtn);
+            actions.appendChild(rejectBtn);
+            td.appendChild(select);
+            td.appendChild(actions);
+            return td;
+          }
+
+          sugTr.appendChild(makeSuggestionCell("title", "Title"));
+          sugTr.appendChild(makeSuggestionCell("artist", "Artist"));
+          sugTr.appendChild(makeSuggestionCell("album", "Album"));
+          sugTr.appendChild(makeSuggestionCell("track_number", "Track #"));
+          sugTr.appendChild(makeSuggestionCell("year", "Year"));
+
+          const dismissTd = document.createElement("td");
+          dismissTd.className = "mb-suggestion-cell";
+          const dismissBtn = document.createElement("button");
+          dismissBtn.type = "button";
+          dismissBtn.className = "mb-suggestion-btn";
+          dismissBtn.textContent = "Dismiss";
+          dismissBtn.title = "Close suggestions";
+          dismissBtn.addEventListener("click", () => {
+            delete track.musicbrainz_suggestions;
+            delete track.musicbrainz_selected_index;
+            renderTracksTable();
+          });
+          dismissTd.appendChild(dismissBtn);
+          sugTr.appendChild(dismissTd);
+
+          const totalCols = 12;
+          const createdCols = 1 + fields.length + 1; /* label + 5 fields + dismiss */
+          for (let i = 0; i < totalCols - createdCols; i++) {
+            const empty = document.createElement("td");
+            sugTr.appendChild(empty);
+          }
+
+          tracksTableBody.appendChild(sugTr);
+        }
+
+        if (!track.rejected_reason) {
+          anyEditable = true;
+        }
+      });
+
+      applyTagsBtn.disabled = !anyEditable;
+    }
+
+    function startPlayback(track) {
+      const url = "{{ url_for('music_preview') }}" + "?path=" + encodeURIComponent(track.path);
+      audioElement.src = url;
+      audioElement.play().catch(() => {});
+      audioPlayerBar.classList.add("visible");
+      audioTitle.textContent = track.title || track.path;
+      audioArtist.textContent = track.artist || "";
+      audioPlayPauseBtn.textContent = "Pause";
+    }
+
+    audioElement.addEventListener("timeupdate", () => {
+      const current = audioElement.currentTime || 0;
+      const total = audioElement.duration || 0;
+      audioCurrentTime.textContent = formatTime(current);
+      audioDuration.textContent = formatTime(total);
+      if (total > 0) {
+        audioSeek.value = Math.round((current / total) * 100);
+      }
+    });
+
+    audioSeek.addEventListener("input", () => {
+      const total = audioElement.duration || 0;
+      if (total > 0) {
+        const ratio = audioSeek.value / 100;
+        audioElement.currentTime = total * ratio;
+      }
+    });
+
+    audioPlayPauseBtn.addEventListener("click", () => {
+      if (audioElement.paused) {
+        audioElement.play().catch(() => {});
+        audioPlayPauseBtn.textContent = "Pause";
+      } else {
+        audioElement.pause();
+        audioPlayPauseBtn.textContent = "Play";
+      }
+    });
+
+    refreshMetadataBtn.addEventListener("click", async () => {
+      if (lastSavedAudioPaths.length > 0) {
+        await fetchAndRenderMetadata(lastSavedAudioPaths);
+      }
+    });
+
+    applyTagsBtn.addEventListener("click", async () => {
+      const payload = { tracks: trackState.map(t => ({
+        path: t.path,
+        title: t.title || "",
+        artist: t.artist || "",
+        album: t.album || "",
+        year: t.year || "",
+        track_number: t.track_number || "",
+      })) };
+      try {
+        const resp = await fetch("{{ url_for('music_apply_tags') }}", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          return;
+        }
+        const data = await resp.json();
+        if (data && data.status === "ok") {
+          feedback.className = "feedback success";
+          feedback.textContent = "Tags applied to music files.";
+        }
+      } catch (err) {
+        console.error("Failed to apply tags", err);
+      }
+    });
+
+    async function findRecommendedMetadata(track) {
+      const payload = {
+        path: track.path,
+        title: track.title || "",
+        artist: track.artist || "",
+        album: track.album || "",
+        duration_seconds: track.duration_seconds || null,
+      };
+      try {
+        const resp = await fetch("{{ url_for('music_musicbrainz') }}", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok) {
+          return;
+        }
+        const data = await resp.json();
+        if (data && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+          track.musicbrainz_suggestions = data.suggestions;
+          track.musicbrainz_selected_index = 0;
+          renderTracksTable();
+        }
+      } catch (err) {
+        console.error("Failed to query MusicBrainz", err);
+      }
+    }
+
+    async function transcodeTrack(track) {
+      try {
+        const resp = await fetch("{{ url_for('music_transcode') }}", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: track.path }),
+        });
+        if (!resp.ok) {
+          return;
+        }
+        const data = await resp.json();
+        if (data.status === "ok" && data.output_path) {
+          track.path = data.output_path;
+          track.quality_status = data.quality_status || "ok";
+          track.quality_message = data.quality_message || "Transcoded to 320 kbps MP3";
+          renderTracksTable();
+        }
+      } catch (err) {
+        console.error("Failed to transcode track", err);
+      }
+    }
+  </script>
+{% endblock %}
+

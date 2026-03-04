@@ -27,3 +27,5 @@ build/
 
 # Docker
 docker-compose.yml
+
+data/

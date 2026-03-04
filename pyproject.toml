@@ -13,6 +13,8 @@ media-organiser = "media_organiser.cli:main"
 python = "^3.10"
 pillow = "*"
 flask = "*"
+requests = "*"
+mutagen = "^1.47.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"

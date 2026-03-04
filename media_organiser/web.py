@@ -2,8 +2,11 @@
 import os
 from pathlib import Path
 
-from flask import Flask, request, render_template, jsonify, redirect, url_for
+from flask import Flask, request, render_template, jsonify, redirect, url_for, send_file, abort
 from werkzeug.exceptions import RequestEntityTooLarge
+
+from . import audio_tools
+from . import musicbrainz_client
 
 app = Flask(
     __name__,
@@ -20,6 +23,12 @@ def get_import_dir() -> Path:
     path = Path(os.environ.get("IMPORT_DIR", "./data/import"))
     path.mkdir(parents=True, exist_ok=True)
     # Always return resolved (absolute) path to avoid issues with relative_to()
+    return path.resolve()
+
+
+def get_music_export_dir() -> Path:
+    path = Path(os.environ.get("MUSIC_LIB_DIR", "./data/music"))
+    path.mkdir(parents=True, exist_ok=True)
     return path.resolve()
 
 
@@ -51,7 +60,143 @@ def handle_file_too_large(e):
 
 @app.route("/")
 def index():
-    return render_template("upload.html")
+    return render_template("upload.html", active_mode="video")
+
+
+@app.route("/music")
+def music_upload():
+    return render_template("music_upload.html", active_mode="music")
+
+
+@app.route("/music/preview")
+def music_preview():
+    import_dir = get_import_dir()
+    rel_path = request.args.get("path")
+    if not rel_path:
+        abort(400)
+    dest = _safe_relative_path(import_dir, rel_path)
+    if dest is None or not dest.is_file():
+        abort(404)
+    suffix = dest.suffix.lower()
+    if suffix == ".mp3":
+        mimetype = "audio/mpeg"
+    elif suffix == ".flac":
+        mimetype = "audio/flac"
+    elif suffix in {".m4a", ".aac"}:
+        mimetype = "audio/aac"
+    elif suffix == ".ogg":
+        mimetype = "audio/ogg"
+    elif suffix == ".wav":
+        mimetype = "audio/wav"
+    else:
+        mimetype = "application/octet-stream"
+    return send_file(dest, mimetype=mimetype, conditional=True)
+
+
+@app.route("/api/music/metadata", methods=["POST"])
+def music_metadata():
+    import_dir = get_import_dir()
+    payload = request.get_json(silent=True) or {}
+    paths = payload.get("paths") or []
+    tracks: list[dict] = []
+    for rel in paths:
+        if not isinstance(rel, str):
+            continue
+        dest = _safe_relative_path(import_dir, rel)
+        if dest is None or not dest.is_file():
+            continue
+        analysis = audio_tools.analyse_audio(dest)
+        tracks.append(
+            {
+                "path": str(dest.relative_to(import_dir)),
+                "title": analysis.title,
+                "artist": analysis.artist,
+                "album": analysis.album,
+                "year": analysis.year,
+                "track_number": analysis.track_number,
+                "bitrate_kbps": analysis.bitrate_kbps,
+                "sample_rate": analysis.sample_rate,
+                "duration_seconds": analysis.duration_seconds,
+                "codec_name": analysis.codec_name,
+                "quality_status": analysis.quality_status,
+                "quality_message": analysis.quality_message,
+                "rejected_reason": analysis.rejected_reason,
+                "needs_transcode": analysis.needs_transcode,
+            }
+        )
+    return jsonify({"tracks": tracks})
+
+
+@app.route("/api/music/apply-tags", methods=["POST"])
+def music_apply_tags():
+    import_dir = get_import_dir()
+    payload = request.get_json(silent=True) or {}
+    tracks = payload.get("tracks") or []
+    results: list[dict] = []
+    for t in tracks:
+        rel = t.get("path")
+        if not isinstance(rel, str):
+            continue
+        dest = _safe_relative_path(import_dir, rel)
+        if dest is None or not dest.is_file():
+            results.append({"path": rel, "status": "error", "reason": "Invalid path"})
+            continue
+        quality = audio_tools.detect_bitrate_and_quality(dest)
+        if quality.get("rejected_reason"):
+            results.append({"path": rel, "status": "rejected", "reason": quality["rejected_reason"]})
+            continue
+        tags = {
+            "title": t.get("title") or "",
+            "artist": t.get("artist") or "",
+            "album": t.get("album") or "",
+            "year": t.get("year") or "",
+            "track_number": t.get("track_number") or "",
+        }
+        try:
+            audio_tools.apply_id3_tags(dest, tags)
+            results.append({"path": rel, "status": "ok"})
+        except Exception as e:
+            results.append({"path": rel, "status": "error", "reason": str(e)})
+    return jsonify({"status": "ok", "results": results})
+
+
+@app.route("/api/music/musicbrainz", methods=["POST"])
+def music_musicbrainz():
+    payload = request.get_json(silent=True) or {}
+    title = payload.get("title") or None
+    artist = payload.get("artist") or None
+    album = payload.get("album") or None
+    duration = payload.get("duration_seconds")
+    suggestions = musicbrainz_client.search_track_top_n(
+        artist=artist,
+        title=title,
+        album=album,
+        duration_seconds=duration,
+        limit=5,
+    )
+    return jsonify({"suggestions": suggestions})
+
+
+@app.route("/api/music/transcode", methods=["POST"])
+def music_transcode():
+    import_dir = get_import_dir()
+    export_dir = get_music_export_dir()
+    payload = request.get_json(silent=True) or {}
+    rel = payload.get("path")
+    if not isinstance(rel, str):
+        return jsonify({"status": "error", "reason": "Missing path"}), 400
+    dest = _safe_relative_path(import_dir, rel)
+    if dest is None or not dest.is_file():
+        return jsonify({"status": "error", "reason": "Invalid path"}), 400
+    result = audio_tools.ensure_mp3_320(dest, export_dir)
+    if result.get("output_path"):
+        out_path = Path(result["output_path"])
+        try:
+            rel_out = out_path.relative_to(export_dir)
+        except ValueError:
+            rel_out = out_path.name
+        result["output_path"] = str(rel_out)
+    return jsonify(result)
 
 
 @app.route("/upload", methods=["POST"])

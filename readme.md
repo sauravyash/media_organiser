@@ -119,6 +119,8 @@ media_organiser/
 * For **CLI-only** use: no mandatory third-party packages.
 * (Optional) **Pillow** for poster sieve support.
 * (Optional) **Flask** for the web upload interface (e.g. when using Docker or running `flask --app media_organiser.web:app run`).
+* (Optional) **Mutagen** and **requests** are installed automatically when using Poetry, for music metadata handling.
+* For best results with the Music Upload workflow, install system tools **ffmpeg** (with `libmp3lame`) to enable audio analysis/transcoding.
 
 ---
 
@@ -165,6 +167,30 @@ flask --app media_organiser.web:app run --host 0.0.0.0 --port 6767
 ```
 
 Then open `http://localhost:6767/`, upload files (or a folder to preserve structure); they are written to `IMPORT_DIR`. The CLI (or Docker watch) can then organise them into your library.
+
+---
+
+## Music upload (optional)
+
+If `mutagen`, `requests`, and `ffmpeg` are available, the web UI also exposes a **Music Upload** workflow at `/music`:
+
+* Upload audio files/folders into `IMPORT_DIR`.
+* Inspect and edit detected metadata in a table (title, artist, album, track #, year, bitrate, duration).
+* Play individual tracks with an inline audio player.
+* Call out to MusicBrainz to fetch recommended metadata for a track.
+* Enforce quality rules:
+  * Reject files below 256 kbps.
+  * Flag non-320 kbps or non-MP3 files as needing transcode.
+* Transcode to 320 kbps MP3 using `ffmpeg`/LAME and export into a **separate music library** directory.
+
+Environment variables:
+
+```bash
+export IMPORT_DIR=/path/to/import          # default: ./data/import
+export MUSIC_LIB_DIR=/path/to/music_lib    # default: ./data/music
+```
+
+The existing video workflow continues to use the main library directory (`LIB_DIR`) while music exports go to `MUSIC_LIB_DIR`.
 
 ---
 
