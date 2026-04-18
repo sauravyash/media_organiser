@@ -19,6 +19,13 @@ max_upload_size = int(os.environ.get("MAX_UPLOAD_SIZE", 30 * 1024 * 1024 * 1024)
 app.config["MAX_CONTENT_LENGTH"] = max_upload_size
 
 
+def _env_flag(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() not in {"0", "false", "no", "off"}
+
+
 def get_import_dir() -> Path:
     path = Path(os.environ.get("IMPORT_DIR", "./data/import"))
     path.mkdir(parents=True, exist_ok=True)
@@ -187,7 +194,14 @@ def music_transcode():
     dest = _safe_relative_path(music_dir, rel)
     if dest is None or not dest.is_file():
         return jsonify({"status": "error", "reason": "Invalid path"}), 400
-    result = audio_tools.ensure_mp3_320(dest, music_dir)
+    scan_library_duplicates = _env_flag("MUSIC_IMPORT_DEDUPE", default=True)
+    if "scan_library_duplicates" in payload:
+        scan_library_duplicates = bool(payload.get("scan_library_duplicates"))
+    result = audio_tools.ensure_mp3_320(
+        dest,
+        music_dir,
+        scan_library_duplicates=scan_library_duplicates,
+    )
     if result.get("output_path"):
         out_path = Path(result["output_path"])
         try:

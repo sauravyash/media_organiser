@@ -144,6 +144,7 @@ poetry run media-organiser SOURCE [DEST]
   [--mode move|copy]
   [--dry-run]
   [--dupe-mode off|name|size|hash]
+  [--no-import-dedupe]
   [--emit-nfo off|movie|tv|all]
   [--nfo-layout same-stem|kodi]
   [--overwrite-nfo]
@@ -156,6 +157,7 @@ poetry run media-organiser SOURCE [DEST]
 Key flags:
 
 * `--dupe-mode` supports `hash` (fast fingerprint), `size`, or `name`.
+* Import-side library scan is enabled by default for video; use `--no-import-dedupe` to disable removing duplicate imports already present in `/movies` or `/tv`.
 * `--emit-nfo` writes NFO files (merge-first).
 * `--carry-posters` enables optional local poster filtering.
 
@@ -190,9 +192,10 @@ Environment variables:
 ```bash
 export IMPORT_DIR=/path/to/import          # default: ./data/import
 export MUSIC_LIB_DIR=/path/to/music_lib    # default: ./data/music
+export MUSIC_IMPORT_DEDUPE=1               # default enabled; set 0/false/no/off to disable library duplicate scan
 ```
 
-Music uploads (from the Music UI) and music transcode export both use `MUSIC_LIB_DIR`. The existing video workflow continues to use the main library directory (`LIB_DIR`) for organise; video uploads go to `IMPORT_DIR`.
+Music uploads (from the Music UI) and music transcode export both use `MUSIC_LIB_DIR`. During `/api/music/transcode`, the tool scans the music library for duplicate tracks (fingerprint + filename preference) and removes duplicate attempted imports by default; disable with `MUSIC_IMPORT_DEDUPE=0`. The existing video workflow continues to use the main library directory (`LIB_DIR`) for organise; video uploads go to `IMPORT_DIR`.
 
 ---
 

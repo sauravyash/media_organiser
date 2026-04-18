@@ -10,7 +10,11 @@ from .nfo import (
     find_nfo,  read_nfo_to_meta, nfo_path_for,
     write_movie_nfo, write_episode_nfo, merge_first, merge_subtitles
 )
-from .duplicates import is_duplicate_in_dir, quick_fingerprint
+from .duplicates import (
+    build_library_import_dup_index,
+    is_duplicate_in_dir,
+    quick_fingerprint,
+)
 from .io_ops import do_move_or_copy
 from .sidecars import copy_move_sidecars
 from .posters import carry_poster_with_sieve, parse_range_pair  # optional; default off
@@ -23,6 +27,11 @@ def main():
     ap.add_argument("--mode", choices=["move","copy"], default="move")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--dupe-mode", choices=["off","name","size","hash"], default="hash")
+    ap.add_argument(
+        "--no-import-dedupe",
+        action="store_true",
+        help="Do not scan movies/ and tv/ for duplicates; keep import files even when a matching library copy exists.",
+    )
     # NFO
     ap.add_argument("--emit-nfo", choices=["off","movie","tv","all"], default="all")
     ap.add_argument("--nfo-layout", choices=["same-stem","kodi"], default="same-stem")
@@ -40,6 +49,10 @@ def main():
     tv_root     = dest_root / "tv"
     movies_root.mkdir(parents=True, exist_ok=True)
     tv_root.mkdir(parents=True, exist_ok=True)
+
+    lib_import_index = None
+    if args.dupe_mode != "off" and not args.no_import_dedupe:
+        lib_import_index = build_library_import_dup_index(movies_root, tv_root, args.dupe_mode)
 
     # Poster sieve config
     min_w, min_h = map(int, args.poster_min_wh.lower().split("x"))
@@ -66,6 +79,21 @@ def main():
             continue
         # skip obvious samples
         if re.search(r"(?i)\bsample\b", path.name): continue
+
+        if lib_import_index is not None:
+            lib_match = lib_import_index.find_duplicate(path)
+            if lib_match is not None:
+                print(
+                    f"REMOVED DUPLICATE IMPORT: {path} -> already in library as {lib_match} [{args.dupe_mode}]"
+                )
+                if not args.dry_run:
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError as e:
+                        print(f"[warn] could not remove duplicate import {path}: {e}")
+                    if args.mode == "move":
+                        prune_junk_then_empty_dirs(path.parent, src_root, bad_words)
+                continue
 
         quality = detect_quality(path.name)
         is_tv, info = is_tv_episode(path.name, path)

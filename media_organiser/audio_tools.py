@@ -9,6 +9,48 @@ from typing import Any, Dict, Optional
 from mutagen import File as MutagenFile
 from mutagen.easyid3 import EasyID3
 
+from .duplicates import quick_fingerprint
+
+# Minimum acceptable bitrate for library ingest (inclusive).
+MIN_BITRATE_KBPS = 256
+
+
+def _ffprobe_value_to_bitrate_kbps(value: Any) -> Optional[int]:
+    """Parse ffprobe bit_rate (bps as int or str); return rounded kbps, or None if unknown."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        s = value.strip().lower()
+        if not s or s in ("n/a", "nan"):
+            return None
+        try:
+            bps = int(float(s))
+        except ValueError:
+            return None
+    else:
+        try:
+            bps = int(value)
+        except (TypeError, ValueError):
+            return None
+    if bps <= 0:
+        return None
+    return int(round(bps / 1000))
+
+
+def _bitrate_kbps_from_mutagen_mp3(path: Path) -> Optional[int]:
+    try:
+        from mutagen.mp3 import MP3
+    except ImportError:
+        return None
+    try:
+        mp3 = MP3(path)
+        br = getattr(mp3.info, "bitrate", None) if mp3.info else None
+        if br is None:
+            return None
+        return int(br)
+    except Exception:
+        return None
+
 
 @dataclass
 class AudioAnalysis:
@@ -33,8 +75,10 @@ def _run_ffprobe(path: Path) -> Dict[str, Any]:
         "ffprobe",
         "-v",
         "error",
+        "-select_streams",
+        "a:0",
         "-show_entries",
-        "format=duration,bit_rate:stream=codec_name,sample_rate",
+        "format=duration,bit_rate:stream=codec_name,sample_rate,bit_rate",
         "-of",
         "json",
         str(path),
@@ -65,18 +109,10 @@ def read_audio_metadata(path: Path) -> Dict[str, Any]:
     data = _run_ffprobe(path)
     fmt = data.get("format") or {}
     streams = data.get("streams") or []
-    if "bit_rate" in fmt:
-        try:
-            info["bitrate_kbps"] = int(int(fmt["bit_rate"]) / 1000)
-        except (TypeError, ValueError):
-            pass
-    if "duration" in fmt:
-        try:
-            info["duration_seconds"] = float(fmt["duration"])
-        except (TypeError, ValueError):
-            pass
+    stream_kbps: Optional[int] = None
     if streams:
         audio_stream = streams[0]
+        stream_kbps = _ffprobe_value_to_bitrate_kbps(audio_stream.get("bit_rate"))
         codec = audio_stream.get("codec_name")
         if codec:
             info["codec_name"] = codec
@@ -85,6 +121,16 @@ def read_audio_metadata(path: Path) -> Dict[str, Any]:
                 info["sample_rate"] = int(audio_stream["sample_rate"])
             except (TypeError, ValueError):
                 pass
+    format_kbps = _ffprobe_value_to_bitrate_kbps(fmt.get("bit_rate"))
+    # Prefer stream bitrate: format-level bit_rate is often missing on Linux for MP3/VBR.
+    info["bitrate_kbps"] = stream_kbps if stream_kbps is not None else format_kbps
+    if info["bitrate_kbps"] is None:
+        info["bitrate_kbps"] = _bitrate_kbps_from_mutagen_mp3(path)
+    if "duration" in fmt:
+        try:
+            info["duration_seconds"] = float(fmt["duration"])
+        except (TypeError, ValueError):
+            pass
     return info
 
 
@@ -150,9 +196,9 @@ def detect_bitrate_and_quality(path: Path) -> Dict[str, Any]:
     rejected_reason: Optional[str] = None
     needs_transcode = False
 
-    if not bitrate or bitrate < 256:
+    if bitrate is None or bitrate < MIN_BITRATE_KBPS:
         quality_status = "rejected"
-        quality_message = "Bitrate below 256 kbps – rejected"
+        quality_message = f"Bitrate below minimum ({MIN_BITRATE_KBPS} kbps) – rejected"
         rejected_reason = quality_message
         needs_transcode = False
     elif codec_name != "mp3" or bitrate < 320:
@@ -247,6 +293,39 @@ def _parse_int_first_part(value: Optional[str]) -> Optional[int]:
         return None
 
 
+def _find_duplicate_in_music_library(source: Path, export_dir: Path, target_name: str) -> Optional[Path]:
+    """
+    Find an existing identical file in the music library.
+    Preference order:
+    1) Same filename + same fingerprint
+    2) Any filename + same fingerprint
+    """
+    try:
+        src_fp = quick_fingerprint(source)
+    except OSError:
+        return None
+
+    same_name_match: Optional[Path] = None
+    for existing in export_dir.rglob("*.mp3"):
+        try:
+            if not existing.is_file():
+                continue
+            if existing.resolve() == source.resolve():
+                continue
+            if existing.stat().st_size != src_fp[0]:
+                continue
+            ex_fp = quick_fingerprint(existing)
+            if ex_fp != src_fp:
+                continue
+            if existing.name == target_name:
+                return existing
+            if same_name_match is None:
+                same_name_match = existing
+        except (OSError, FileNotFoundError):
+            continue
+    return same_name_match
+
+
 def _compute_library_target(source: Path, export_dir: Path) -> Path:
     """Compute Artist / YEAR - Album / NN - Title.mp3 style destination."""
     artist: Optional[str] = None
@@ -329,17 +408,31 @@ def _compute_library_target(source: Path, export_dir: Path) -> Path:
                 filename = f"{track_no:02d} - {title_safe}.mp3"
 
     target = album_dir / filename
-    # De-duplicate if necessary
+
+    try:
+        source_fp = quick_fingerprint(source)
+    except OSError:
+        source_fp = None
+
     n = 1
-    while target.exists():
+    while True:
+        if not target.exists():
+            return target
+        if source_fp is not None:
+            try:
+                if quick_fingerprint(target) == source_fp:
+                    return target
+            except (OSError, FileNotFoundError):
+                pass
         stem = target.stem
         suffix = target.suffix
         target = target.with_name(f"{stem} ({n}){suffix}")
         n += 1
-    return target
 
 
-def ensure_mp3_320(source: Path, export_dir: Path) -> Dict[str, Any]:
+def ensure_mp3_320(
+    source: Path, export_dir: Path, *, scan_library_duplicates: bool = True
+) -> Dict[str, Any]:
     export_dir.mkdir(parents=True, exist_ok=True)
 
     quality = detect_bitrate_and_quality(source)
@@ -358,6 +451,36 @@ def ensure_mp3_320(source: Path, export_dir: Path) -> Dict[str, Any]:
 
     target = _compute_library_target(source, export_dir)
     target.parent.mkdir(parents=True, exist_ok=True)
+
+    if scan_library_duplicates:
+        duplicate = _find_duplicate_in_music_library(source, export_dir, target.name)
+        if duplicate is not None:
+            try:
+                source.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return {
+                "status": "ok",
+                "reason": None,
+                "output_path": str(duplicate),
+                "quality_status": "ok",
+                "quality_message": "Duplicate removed (identical to existing library file)",
+            }
+
+    # Identical bytes already in the library under this naming scheme — drop the extra file.
+    if target.exists() and source.resolve() != target.resolve():
+        try:
+            if quick_fingerprint(source) == quick_fingerprint(target):
+                source.unlink(missing_ok=True)
+                return {
+                    "status": "ok",
+                    "reason": None,
+                    "output_path": str(target),
+                    "quality_status": "ok",
+                    "quality_message": "Duplicate removed (identical to existing library file)",
+                }
+        except OSError:
+            pass
 
     if codec_name == "mp3" and bitrate >= 320 and not quality.get("needs_transcode"):
         if source.resolve() != target.resolve():
