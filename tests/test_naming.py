@@ -1,8 +1,10 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 from media_organiser.cli import main
-from media_organiser.naming import is_tv_episode, detect_quality, clean_name, guess_movie_name_from_file, guess_movie_name, movie_part_suffix, titlecase_soft, movie_name_from_parents, is_generic_collection_parent, normalise_movie_title_for_display
+from media_organiser.naming import is_tv_episode, detect_quality, clean_name, guess_movie_name_from_file, guess_movie_name, movie_part_suffix, titlecase_soft, movie_name_from_parents, is_generic_collection_parent, normalise_movie_title_for_display, detect_numbered_series, count_distinct_movies
 
 
 def test_tv_patterns_basic():
@@ -385,6 +387,145 @@ def test_titlecase_soft_preserves_possessive_apostrophe():
     assert titlecase_soft("don't") == "Don't"
     # O'Brien-style: capitalize after apostrophe when not s/t
     assert titlecase_soft("o'brien") == "O'Brien"
+
+
+@pytest.mark.parametrize(
+    "filename, expected",
+    [
+        # Title containing a period must not be truncated at the '.' (was 'Dr', 'Mr')
+        ("Dr. Strangelove (1964).mp4", "Dr. Strangelove"),
+        ("Mr. Turner.mp4", "Mr. Turner"),
+        # Decimal in title must survive (was 'Die Hard 4')
+        ("Die Hard 4.0 - Live Free or Die Hard (2007).mp4", "Die Hard 4.0 - Live Free Or Die Hard"),
+    ],
+)
+def test_guess_movie_name_title_with_period_not_truncated(tmp_path, filename, expected):
+    """A '.' inside the title must not chop the name (regression: double-stemming in guess_movie_name)."""
+    src = tmp_path / "in"
+    src.mkdir(parents=True)
+    path = src / filename
+    path.touch()
+    movie_name, _ = guess_movie_name(path, src)
+    assert normalise_movie_title_for_display(movie_name) == expected
+
+
+@pytest.mark.parametrize(
+    "filename, expected",
+    [
+        ("2001 - A Space Odyssey (1968).mp4", "2001 - A Space Odyssey"),
+        ("2012 (2009).mp4", "2012"),
+        ("1917 (2019).mp4", "1917"),
+    ],
+)
+def test_guess_movie_name_leading_year_title_not_emptied(tmp_path, filename, expected):
+    """A title that starts with a year must not be truncated to an empty string."""
+    src = tmp_path / "in"
+    src.mkdir(parents=True)
+    path = src / filename
+    path.touch()
+    movie_name, _ = guess_movie_name(path, src)
+    normalised = normalise_movie_title_for_display(movie_name)
+    assert normalised, f"title emptied for {filename!r}"
+    assert normalised == expected
+
+
+def test_guess_movie_name_from_file_still_truncates_trailing_year():
+    """Ordinary 'Title Year' names still drop the trailing year (index-0 skip must not disable this)."""
+    assert guess_movie_name_from_file("The Matrix 1999.mp4") == "The Matrix"
+    assert guess_movie_name_from_file("Blade Runner 2049.mp4") == "Blade Runner 2049"
+
+
+def test_collection_leading_year_kept_when_conflicting_trailing_year(tmp_path):
+    """In a collection folder, a leading year that conflicts with a real trailing (YEAR) is kept.
+
+    '2001 - A Space Odyssey (1968)' -> 2001 is part of the title, 1968 is the release year.
+    """
+    src = tmp_path / "in"
+    parent = src / "Movies"
+    parent.mkdir(parents=True)
+    path = parent / "2001 - A Space Odyssey (1968).mp4"
+    path.touch()
+    movie_name, _ = guess_movie_name(path, src)
+    assert normalise_movie_title_for_display(movie_name) == "2001 - A Space Odyssey"
+
+
+def test_collection_leading_year_prefix_still_stripped_without_conflict(tmp_path):
+    """A genuine 'YEAR - Title' collection prefix (no conflicting trailing year) is still stripped."""
+    src = tmp_path / "in"
+    parent = src / "Disney Movies"
+    parent.mkdir(parents=True)
+    # No trailing (YEAR): 2001 is the catalog/release-year prefix.
+    path = parent / "2001 - Atlantis The Lost Empire.avi"
+    path.touch()
+    movie_name, _ = guess_movie_name(path, src)
+    assert movie_name == "Atlantis The Lost Empire"
+
+
+def test_collection_leading_year_matching_trailing_year_stripped(tmp_path):
+    """When leading and trailing year match, it's a prefix listing — strip to the bare title."""
+    src = tmp_path / "in"
+    parent = src / "Kids Movies"
+    parent.mkdir(parents=True)
+    path = parent / "1995 - Toy Story (1995).mkv"
+    path.touch()
+    movie_name, _ = guess_movie_name(path, src)
+    assert normalise_movie_title_for_display(movie_name) == "Toy Story"
+
+
+def test_count_distinct_movies_treats_multipart_as_one():
+    """CD1/CD2 (or Part 1/2) of one film count as a single movie, not a container."""
+    parts = [Path("Inception (2010)/Inception CD1.avi"), Path("Inception (2010)/Inception CD2.avi")]
+    assert count_distinct_movies(parts) == 1
+    distinct = [Path("James Bond/Goldfinger (1964).mp4"), Path("James Bond/Skyfall (2012).mp4")]
+    assert count_distinct_movies(distinct) == 2
+
+
+def test_container_folder_uses_filename_title_not_folder_name(tmp_path):
+    """A folder holding several distinct movies is a container: each keeps its own title."""
+    src = tmp_path / "in"
+    bond = src / "James Bond"
+    bond.mkdir(parents=True)
+    p = bond / "Casino Royale (2006).mp4"
+    p.touch()
+    # parent_is_container mirrors what the CLI computes from sibling counts
+    movie_name, _ = guess_movie_name(p, src, parent_is_container=True)
+    assert normalise_movie_title_for_display(movie_name) == "Casino Royale"
+    # without the flag, the old behaviour would stamp the folder name on the file
+    assert guess_movie_name(p, src)[0] == "James Bond"
+
+
+def test_detect_numbered_series_positive():
+    """4+ numbered, year-less, common-prefix files are a loose series with per-file episodes."""
+    paths = [Path(f"Buzzy Bee/BUZZYBEE-{i}.mp4") for i in range(1, 6)]
+    result = detect_numbered_series(paths)
+    assert result is not None
+    assert set(result["episodes"].values()) == {1, 2, 3, 4, 5}
+
+
+def test_detect_numbered_series_rejects_movies_with_years():
+    """Distinct films that carry release years are NOT a numbered series (they're a container)."""
+    paths = [
+        Path("James Bond/Casino Royale (2006).mp4"),
+        Path("James Bond/Goldfinger (1964).mp4"),
+        Path("James Bond/Octopussy (1983).mp4"),
+        Path("James Bond/Skyfall (2012).mp4"),
+    ]
+    assert detect_numbered_series(paths) is None
+
+
+def test_detect_numbered_series_rejects_small_group():
+    """A 3-file numbered set (e.g. a movie trilogy) is not treated as a series."""
+    paths = [Path(f"Toy Story/Toy Story {i}.mp4") for i in (1, 2, 3)]
+    assert detect_numbered_series(paths) is None
+
+
+def test_detect_numbered_series_rejects_mixed_prefixes():
+    """Files that don't share a common prefix are not a series."""
+    paths = [
+        Path("Mix/Alpha 1.mp4"), Path("Mix/Beta 2.mp4"),
+        Path("Mix/Gamma 3.mp4"), Path("Mix/Delta 4.mp4"),
+    ]
+    assert detect_numbered_series(paths) is None
 
 
 def test_tv_pattern_ep_xx_at_start():

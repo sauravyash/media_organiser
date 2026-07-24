@@ -1,11 +1,15 @@
 import argparse
 import re
+from collections import defaultdict
 from pathlib import Path
 
 from .stabilize import is_file_size_stable
 from .cleanup import prune_junk_then_empty_dirs
 from .constants import VIDEO_EXTS, IGNORED_PATH_COMPONENTS
-from .naming import detect_quality, is_tv_episode, _clean_title, guess_movie_name, guess_year_for_movie, normalise_movie_title_for_display, movie_part_suffix
+from .naming import (
+    detect_quality, is_tv_episode, _clean_title, guess_movie_name, guess_year_for_movie,
+    normalise_movie_title_for_display, movie_part_suffix, detect_numbered_series, count_distinct_movies,
+)
 from .nfo import (
     find_nfo,  read_nfo_to_meta, nfo_path_for,
     write_movie_nfo, write_episode_nfo, merge_first, merge_subtitles
@@ -50,6 +54,32 @@ def main():
     tv_episodes_processing = {}  # (series, season, episode) -> list of paths
 
     items = list(src_root.rglob("*"))
+
+    # Pre-scan: group videos per directory so we can distinguish a single-movie folder
+    # from a container (several distinct movies, e.g. a "James Bond" folder) and from a
+    # loose numbered series (e.g. "BUZZYBEE-1..13"). Container folders take their title
+    # from each filename; numbered-series folders are routed to /tv as episodes.
+    dir_videos = defaultdict(list)
+    for p in items:
+        if not p.is_file() or p.suffix.lower() not in VIDEO_EXTS:
+            continue
+        if any(part in IGNORED_PATH_COMPONENTS for part in p.parts):
+            continue
+        dir_videos[p.parent].append(p)
+
+    numbered_series = {}    # path -> (series, season, episode)
+    container_dirs = set()  # dirs holding >1 distinct movie -> title from filename
+    for d, vids in dir_videos.items():
+        if count_distinct_movies(vids) > 1:
+            container_dirs.add(d)
+        if d == src_root:
+            continue  # never treat the source root (a dumping ground) as one series
+        ser = detect_numbered_series(vids)
+        if ser:
+            series_name = _clean_title(d.name) or ser["series"]
+            for vp, ep in ser["episodes"].items():
+                numbered_series[vp] = (series_name, 1, ep)
+
     for path in items:
         if not path.is_file(): continue
         if path.suffix.lower() not in VIDEO_EXTS: continue
@@ -68,7 +98,11 @@ def main():
         if re.search(r"(?i)\bsample\b", path.name): continue
 
         quality = detect_quality(path.name)
-        is_tv, info = is_tv_episode(path.name, path)
+        if path in numbered_series:
+            series_name, forced_season, forced_ep = numbered_series[path]
+            is_tv, info = True, {"series": series_name, "season": forced_season, "ep1": forced_ep, "ep2": None}
+        else:
+            is_tv, info = is_tv_episode(path.name, path)
 
         if is_tv:
             series = _clean_title(info["series"])
@@ -130,7 +164,7 @@ def main():
                 write_episode_nfo(out_file, computed, base_meta, overwrite=args.overwrite_nfo, layout=args.nfo_layout)
 
         else:
-            movie_name, used_nfo = guess_movie_name(path, src_root)
+            movie_name, used_nfo = guess_movie_name(path, src_root, parent_is_container=path.parent in container_dirs)
             # Prefer (YYYY) over bare year in title (e.g. Blade Runner 2049)
             year_guess = guess_year_for_movie(path)
             part_suffix = movie_part_suffix(path)
