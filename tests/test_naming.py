@@ -26,6 +26,35 @@ def test_tv_ep2_not_resolution_bleed():
     assert ok and info["series"] == "Black Mirror" and info["season"] == 3 and info["ep1"] == 1
     assert info.get("ep2") is None
 
+
+def test_tv_hyphen_flanked_episode_code():
+    """'Series - 101 - Title' cartoon-rip numbering: code//100 = season, code%100 = episode."""
+    ok, info = is_tv_episode("The Penguins of Madagascar - 101 - Gone in a Flash (400p).mp4")
+    assert ok and info["series"] == "The Penguins Of Madagascar"
+    assert info["season"] == 1 and info["ep1"] == 1
+    ok, info = is_tv_episode("The Penguins of Madagascar - 148 - Dr. Blowhole's Revenge.mp4")
+    assert ok and info["season"] == 1 and info["ep1"] == 48
+    ok, info = is_tv_episode("Some Show - 205 - Whatever.mp4")
+    assert ok and info["season"] == 2 and info["ep1"] == 5
+    ok, info = is_tv_episode("Some Show - 1024 - Big.mp4")
+    assert ok and info["season"] == 10 and info["ep1"] == 24
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "2001 - A Space Odyssey (1968).mp4",  # leading year, not an episode code
+        "2012 (2009).mp4",                    # bare year
+        "American Pie 3 - The Wedding (2003).mp4",  # single digit, no title-after code
+        "Die Hard 4.0 - Live Free or Die Hard (2007).mp4",
+        "Blade Runner 2049 (2017).mp4",
+    ],
+)
+def test_hyphen_flanked_pattern_does_not_catch_movies(filename):
+    """The 'Series - NNN - Title' pattern must not misclassify movies as TV."""
+    ok, _ = is_tv_episode(filename)
+    assert not ok
+
 def test_quality_detection():
     assert detect_quality("movie.1080p.x265.mkv") == "1080p"
     assert detect_quality("movie.UHD.mkv") == "2160p"
