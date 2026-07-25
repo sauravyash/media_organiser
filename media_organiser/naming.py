@@ -89,6 +89,11 @@ _PATTERNS = [
     re.compile(r"(?i)[\.\s_\-]+(?P<season>\d{1,2})[\.\s_\-]*E(?P<ep1>\d{1,3})"),
     re.compile(r"(?i)\bseason[\.\s_\-]+(?P<season>\d{1,2})[\.\s_\-]+episode[\.\s_\-]+(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]*(?P<ep2>\d{1,3}))?"),
     re.compile(r"(?i)(?:^|[\.\s_\-]+)Ep\s+(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]*(?P<ep2>\d{1,3}))?"),
+    # "Series - 101 - Title" style: a 3-4 digit SEE/SEEE code flanked by hyphens with an episode
+    # title after it (common in cartoon rips, e.g. "The Penguins of Madagascar - 101 - Gone in a
+    # Flash"). season = code // 100, episode = code % 100. Both-side hyphens + trailing title keep
+    # it from matching movie years like "2012 (2009)".
+    re.compile(r"(?i)\s[-–—]\s*(?P<season>\d{1,2})(?P<ep1>\d{2})\s*[-–—]\s*(?=\S)"),
 ]
 
 def _clean_title(s: str) -> str:
