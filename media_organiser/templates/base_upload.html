@@ -126,6 +126,20 @@
           <span class="mode-desc">Analyse, tag, and transcode audio.</span>
         </span>
       </a>
+      <a href="{{ url_for('movie_library') }}" class="mode-card {% if active_mode == 'movie-library' %}active{% endif %}">
+        <span class="mode-icon" aria-hidden="true">🎞️</span>
+        <span class="mode-text">
+          <span class="mode-title">Movie library</span>
+          <span class="mode-desc">Review what is filed, spot mislabels.</span>
+        </span>
+      </a>
+      <a href="{{ url_for('music_library') }}" class="mode-card {% if active_mode == 'music-library' %}active{% endif %}">
+        <span class="mode-icon" aria-hidden="true">💿</span>
+        <span class="mode-text">
+          <span class="mode-title">Music library</span>
+          <span class="mode-desc">Review the beets library, spot tag gaps.</span>
+        </span>
+      </a>
     </nav>
   </header>
   <main class="page-shell">
