@@ -1,5 +1,6 @@
 import argparse
 import re
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -24,7 +25,27 @@ from .sidecars import copy_move_sidecars
 from .posters import carry_poster_with_sieve, parse_range_pair  # optional; default off
 
 
+def _make_stdio_encoding_safe() -> None:
+    """
+    Stop a non-ASCII filename from killing the run.
+
+    On Windows the console defaults to a legacy codepage (cp1252), so printing a path
+    like "...Schrodinger's Cat.mkv" (combining diaeresis) raises UnicodeEncodeError and
+    aborts the whole import part-way through. Media filenames are routinely non-ASCII,
+    so encoding must never be fatal: prefer UTF-8, and fall back to replacing unmappable
+    characters when the terminal genuinely cannot represent them.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            # Not a reconfigurable TextIOWrapper (e.g. pytest capture, a plain StringIO).
+            # Those handle unicode fine, so there is nothing to repair.
+            pass
+
+
 def main():
+    _make_stdio_encoding_safe()
     ap = argparse.ArgumentParser(description="Organise media into /movies and /tv, copy subs, and emit local NFOs (offline).")
     ap.add_argument("source")
     ap.add_argument("dest", nargs="?", default=None)

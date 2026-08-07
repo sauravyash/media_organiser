@@ -631,3 +631,31 @@ def test_carry_posters_called_in_movie_flow(tmp_path, monkeypatch):
 #     # Both merge points were exercised
 #     assert merges["dest_merge_seen"] is True, "merge_first must be called with dest_nfo metadata"
 #     assert called["merge_subs"] is True, "merge_subtitles must be called when subs or base_meta['subtitles'] present"
+
+def test_non_ascii_filename_does_not_abort_run(tmp_path, monkeypatch):
+    """A non-ASCII path must not kill the import on a legacy-codepage console.
+
+    Regression: on Windows stdout defaults to cp1252, so printing a filename containing
+    a combining diaeresis raised UnicodeEncodeError and aborted the whole run part-way.
+    """
+    src = tmp_path / "in"
+    dst = tmp_path / "out"
+    src.mkdir(parents=True)
+    # U+0308 COMBINING DIAERESIS — unmappable in cp1252, exactly as in the real fixture.
+    tricky = src / "Young Sheldon S01E08 Schro\u0308dinger's Cat.mkv"
+    tricky.write_bytes(b"payload")
+    later = src / "Another Show S01E01.mkv"
+    later.write_bytes(b"different payload")
+
+    # Simulate a cp1252 console: encoding errors here are what used to be fatal.
+    cp1252_stdout = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict")
+    monkeypatch.setattr(sys, "stdout", cp1252_stdout)
+    try:
+        run_cli_in_proc(src, dst, ["--mode", "copy", "--dupe-mode", "off"])
+    finally:
+        monkeypatch.undo()
+
+    # Both files processed — the run reached the end instead of dying on the first print.
+    assert (dst / "tv").exists()
+    organised = list((dst / "tv").rglob("*.mkv"))
+    assert len(organised) == 2, [p.name for p in organised]
