@@ -107,8 +107,12 @@ media_organiser/
   sidecars.py          # subtitle discovery + move/copy
   nfo.py               # read existing NFO, merge-first, write movie/episode NFOs
   posters.py           # (optional) local poster sieve and carry logic
-  web.py               # Flask upload UI (optional; used by Docker)
-  templates/           # HTML for web upload (e.g. upload.html)
+  web.py               # Flask upload UI + library dashboards (optional; used by Docker)
+  audit.py             # shared Issue model for the dashboards
+  library.py           # read-only audit of LIB_DIR/movies
+  music.py             # read-only audit of the beets library via `beet ls`
+  templates/           # HTML for web upload and dashboards
+  static/              # dashboard.css / dashboard.js
   cleanup.py           # cleanup helpers
   stabilize.py         # stabilisation helpers
 ```
@@ -123,6 +127,7 @@ media_organiser/
 * (Optional) **Flask** for the web upload interface (e.g. when using Docker or running `flask --app media_organiser.web:app run`).
 * (Optional) **Mutagen** and **requests** are installed automatically when using Poetry, for music metadata handling.
 * For best results with the Music Upload workflow, install system tools **ffmpeg** (with `libmp3lame`) to enable audio analysis/transcoding.
+* (Optional) **beets** for the music library dashboard at `/library/music`. It is invoked as an external command, so any install that puts `beet` on `PATH` works (`pipx install beets`, a distro package, or the same virtualenv).
 
 ---
 
@@ -196,6 +201,67 @@ export MUSIC_IMPORT_DEDUPE=1               # default enabled; set 0/false/no/off
 ```
 
 Music uploads (from the Music UI) and music transcode export both use `MUSIC_LIB_DIR`. During `/api/music/transcode`, the tool scans the music library for duplicate tracks (fingerprint + filename preference) and removes duplicate attempted imports by default; disable with `MUSIC_IMPORT_DEDUPE=0`. The existing video workflow continues to use the main library directory (`LIB_DIR`) for organise; video uploads go to `IMPORT_DIR`.
+
+---
+
+## Library dashboards (read-only)
+
+Two pages list what is **already in the destination library** so you can eyeball mislabels
+and metadata problems. Both are strictly read-only: they never rename, move or retag
+anything. Every finding comes with a suggested change for you to verify and apply yourself.
+
+### Movie library — `/library/movies`
+
+Lists every folder under `LIB_DIR/movies` with its video, NFO, subtitles and posters, and
+flags:
+
+| Issue | Severity | What it means |
+| --- | --- | --- |
+| `tv-episode-in-movies` | high | A `SxxExx` file or season pack landed under `/movies` |
+| `no-video-file` | high | Folder holds sidecars but no video (or is empty) |
+| `multiple-videos` | high | Several unrelated videos share one movie folder |
+| `duplicate-title` | high | Two folders resolve to the same movie |
+| `messy-folder-name` | medium | Folder still carries scene words, release-site branding, brackets or a year |
+| `leading-index` | medium | Folder starts with a collection index (`1. `, `02 - `) |
+| `missing-year` / `suspect-year` | medium | No release year, or a year that is really part of the title (`Blade Runner 2049`) |
+| `nfo-title-mismatch` | medium | The NFO `<title>` disagrees with the folder |
+| `quality-mismatch` | medium | Filename quality disagrees with the NFO |
+| `unreadable-nfo` | medium | The NFO could not be parsed |
+| `missing-nfo` | low | No NFO next to the video |
+| `unknown-quality` | low | Filed as `[Other]` because no resolution was detected |
+| `filename-mismatch` | low | Filename does not follow `Title (Year) [Quality]` |
+| `stale-nfo-path` | low | The NFO still points at the file's old name |
+
+```bash
+export LIB_DIR=/path/to/library      # default: ./data/library; movies are read from $LIB_DIR/movies
+export MOVIES_DIR=/somewhere/movies  # optional; overrides $LIB_DIR/movies outright
+```
+
+### Music library — `/library/music`
+
+Backed by **[beets](https://beets.io/)**: the page shells out to `beet ls` and never writes to
+the beets database. Tracks and albums each get their own tab, and each recommendation is the
+exact `beet` command that would fix it (e.g. `beet modify id:42 year=1994`), so you can copy
+it, check it, and run it yourself.
+
+Flags missing or placeholder artist/album/title/year/track/genre tags, tracks and albums with
+no MusicBrainz id (imported as-is rather than matched), lossy files under 128 kbps, duplicate
+tracks, albums with no tracks, and rows whose file is no longer on disk.
+
+beets is optional — without it the page explains what to install and which variables to set:
+
+```bash
+export BEET_BIN=/usr/local/bin/beet          # default: beet (must be on PATH)
+export BEETS_CONFIG=/path/to/config.yaml     # optional; passed as beet -c
+export BEETS_LIBRARY=/path/to/musiclibrary.db  # optional; passed as beet -l
+export BEETS_DIRECTORY=/path/to/music        # optional; passed as beet -d
+```
+
+> `BEETS_DIRECTORY` is beets' own music directory and is **not** the same as `MUSIC_LIB_DIR`,
+> which is where the Music Upload workflow exports transcoded MP3s.
+
+Both dashboards cache their scan for 60s (a large library is slow to walk); the **Rescan**
+button bypasses the cache. Tune with `DASHBOARD_CACHE_TTL=<seconds>`, or `0` to disable caching.
 
 ---
 

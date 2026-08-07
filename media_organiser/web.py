@@ -1,5 +1,6 @@
-"""Web upload interface for media_organiser."""
+"""Web upload interface and read-only library dashboards for media_organiser."""
 import os
+import time
 from pathlib import Path
 
 from flask import Flask, request, render_template, jsonify, redirect, url_for, send_file, abort
@@ -7,6 +8,8 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from . import audio_tools
 from . import musicbrainz_client
+from .library import audit_movies, get_movies_dir
+from .music import scan_music
 
 app = Flask(
     __name__,
@@ -17,6 +20,34 @@ app = Flask(
 # Allow up to 30GB by default, configurable via MAX_UPLOAD_SIZE env var
 max_upload_size = int(os.environ.get("MAX_UPLOAD_SIZE", 30 * 1024 * 1024 * 1024))
 app.config["MAX_CONTENT_LENGTH"] = max_upload_size
+
+
+# Scanning a large library is slow, so dashboard payloads are memoised for a
+# short window. "Rescan" in the UI sends ?refresh=1 to bypass the cache.
+_dashboard_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _cache_ttl() -> float:
+    try:
+        return float(os.environ.get("DASHBOARD_CACHE_TTL", 60))
+    except ValueError:
+        return 60.0
+
+
+def _cached(key: str, builder, refresh: bool = False) -> dict:
+    """Return ``builder()`` output, reusing a recent result unless refreshing."""
+    ttl = _cache_ttl()
+    if not refresh and ttl > 0:
+        hit = _dashboard_cache.get(key)
+        if hit and (time.monotonic() - hit[0]) < ttl:
+            return hit[1]
+    data = builder()
+    _dashboard_cache[key] = (time.monotonic(), data)
+    return data
+
+
+def _wants_refresh() -> bool:
+    return request.args.get("refresh") in ("1", "true", "yes")
 
 
 def _env_flag(name: str, default: bool = True) -> bool:
@@ -276,6 +307,34 @@ def upload():
     
     # Always return JSON with saved and rejected lists
     return jsonify({"saved": saved, "rejected": rejected})
+
+
+@app.route("/library/movies")
+def movie_library():
+    """Read-only listing of everything already filed under /movies."""
+    return render_template(
+        "library_movies.html",
+        active_mode="movie-library",
+        movies_root=str(get_movies_dir()),
+    )
+
+
+@app.route("/api/library/movies")
+def api_movie_library():
+    """JSON payload backing the movie library dashboard."""
+    return jsonify(_cached("movies", audit_movies, refresh=_wants_refresh()))
+
+
+@app.route("/library/music")
+def music_library():
+    """Read-only listing of the beets music library."""
+    return render_template("library_music.html", active_mode="music-library")
+
+
+@app.route("/api/library/music")
+def api_music_library():
+    """JSON payload backing the music library dashboard (from `beet ls`)."""
+    return jsonify(_cached("music", scan_music, refresh=_wants_refresh()))
 
 
 def run_server(host: str = "0.0.0.0", port: int = 6767, debug: bool = False):

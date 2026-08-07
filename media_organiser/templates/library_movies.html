@@ -1,0 +1,68 @@
+{% extends "base_upload.html" %}
+
+{% block title %}Media Organiser — Movie Library{% endblock %}
+
+{% block subtitle %}Everything currently filed under /movies, with the mislabels and metadata gaps worth checking by hand.{% endblock %}
+
+{% block head_extra %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-head">
+    <div>
+      <h1>Movie library</h1>
+      <div class="root" id="library-root">{{ movies_root }}</div>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn btn-primary" id="rescan">Rescan</button>
+    </div>
+  </div>
+
+  <div id="app"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+<script>
+  var fmt = window.dashboardUtils.formatSize;
+
+  initDashboard({
+    mount: "#app",
+    endpoint: "{{ url_for('api_movie_library') }}",
+    emptyMessage: "No movie folders found. Check that LIB_DIR points at your library.",
+    tabs: [
+      {
+        id: "movies",
+        label: "Movies",
+        listKey: "entries",
+        summaryKey: "summary",
+        unit: "movie folders",
+        row: function (entry) {
+          var files = (entry.videos || []).map(function (v) { return v.relpath; });
+          var extras = [];
+          if ((entry.subtitles || []).length) extras.push(entry.subtitles.length + " sub");
+          if ((entry.nfos || []).length) extras.push(entry.nfos.length + " nfo");
+          if ((entry.posters || []).length) extras.push(entry.posters.length + " image");
+          return {
+            title: entry.folder,
+            meta: [
+              { value: entry.year || "no year" },
+              { value: entry.quality || "" },
+              { value: fmt(entry.size) },
+              { value: extras.join(" · ") }
+            ],
+            detail: files.join("   ") || "(no video file)"
+          };
+        }
+      }
+    ],
+    onLoad: function (data) {
+      var root = document.getElementById("library-root");
+      root.textContent = data.exists ? data.root : data.root + "  — this folder does not exist";
+    }
+  });
+</script>
+{% endblock %}
