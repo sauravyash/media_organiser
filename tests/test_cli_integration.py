@@ -4,6 +4,7 @@ import os
 import sys
 import io
 import contextlib
+import xml.etree.ElementTree as ET
 import pytest
 from media_organiser.cli import main as cli_main
 
@@ -659,3 +660,52 @@ def test_non_ascii_filename_does_not_abort_run(tmp_path, monkeypatch):
     assert (dst / "tv").exists()
     organised = list((dst / "tv").rglob("*.mkv"))
     assert len(organised) == 2, [p.name for p in organised]
+
+
+def test_flat_import_with_stray_nfo_keeps_distinct_titles(tmp_path):
+    """
+    Regression: one stray NFO in a flat import folder used to be handed to every
+    video beside it (find_nfo fell back to any *.nfo in the directory), and an NFO
+    title outranks every other signal — so a whole drive collapsed into one folder.
+    """
+    src = tmp_path / "in"
+    dst = tmp_path / "out"
+    src.mkdir(); dst.mkdir()
+
+    names = ["Metropolis (1927).mp4", "Citizen Kane (1941).mp4", "Fargo (1996).mp4"]
+    for i, name in enumerate(names):
+        (src / name).write_bytes(f"movie-{i}".encode() * 64)
+    (src / "F.nfo").write_text("<movie><title>F</title></movie>")
+
+    run_cli_in_proc(src, dst, ["--mode", "copy", "--emit-nfo", "off"])
+
+    folders = sorted(p.name for p in (dst / "movies").iterdir() if p.is_dir())
+    assert folders == ["Citizen Kane", "Fargo", "Metropolis"]
+    assert (dst / "movies" / "Fargo" / "Fargo (1996) [Other].mp4").exists()
+
+
+def test_collided_movie_gets_its_own_nfo(tmp_path):
+    """
+    Regression: the NFO was written against the requested path, not the one
+    safe_path actually used, so every collided file silently lost its NFO.
+    """
+    src = tmp_path / "in"
+    dst = tmp_path / "out"
+    src.mkdir(); dst.mkdir()
+
+    # Two different files that normalise to the same title, year and quality.
+    (src / "Crash (1996).mp4").write_bytes(b"first" * 64)
+    (src / "Crash.1996.mp4").write_bytes(b"second" * 128)
+
+    run_cli_in_proc(src, dst, ["--mode", "copy", "--emit-nfo", "movie", "--dupe-mode", "off"])
+
+    folder = dst / "movies" / "Crash"
+    videos = sorted(p.name for p in folder.glob("*.mp4"))
+    assert videos == ["Crash (1996) [Other] (2).mp4", "Crash (1996) [Other].mp4"]
+    for video in videos:
+        assert (folder / video).with_suffix(".nfo").exists(), f"no NFO for {video}"
+
+    collided = folder / "Crash (1996) [Other] (2).nfo"
+    root = ET.fromstring(collided.read_bytes())
+    assert root.findtext("filenameandpath").endswith("Crash (1996) [Other] (2).mp4")
+    assert root.findtext("size") == str((folder / "Crash (1996) [Other] (2).mp4").stat().st_size)
