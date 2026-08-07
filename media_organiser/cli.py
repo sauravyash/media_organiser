@@ -1,28 +1,62 @@
 import argparse
 import re
+import sys
+from collections import defaultdict
 from pathlib import Path
 
 from .stabilize import is_file_size_stable
 from .cleanup import prune_junk_then_empty_dirs
 from .constants import VIDEO_EXTS, IGNORED_PATH_COMPONENTS
-from .naming import detect_quality, is_tv_episode, _clean_title, guess_movie_name, guess_year_for_movie, normalise_movie_title_for_display, movie_part_suffix
+from .naming import (
+    detect_quality, is_tv_episode, _clean_title, guess_movie_name, guess_year_for_movie,
+    normalise_movie_title_for_display, movie_part_suffix, detect_numbered_series, count_distinct_movies,
+)
 from .nfo import (
     find_nfo,  read_nfo_to_meta, nfo_path_for,
     write_movie_nfo, write_episode_nfo, merge_first, merge_subtitles
 )
-from .duplicates import is_duplicate_in_dir, quick_fingerprint
+from .duplicates import (
+    build_library_import_dup_index,
+    is_duplicate_in_dir,
+    quick_fingerprint,
+)
 from .io_ops import do_move_or_copy
 from .sidecars import copy_move_sidecars
 from .posters import carry_poster_with_sieve, parse_range_pair  # optional; default off
 
 
+def _make_stdio_encoding_safe() -> None:
+    """
+    Stop a non-ASCII filename from killing the run.
+
+    On Windows the console defaults to a legacy codepage (cp1252), so printing a path
+    like "...Schrodinger's Cat.mkv" (combining diaeresis) raises UnicodeEncodeError and
+    aborts the whole import part-way through. Media filenames are routinely non-ASCII,
+    so encoding must never be fatal: prefer UTF-8, and fall back to replacing unmappable
+    characters when the terminal genuinely cannot represent them.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            # Not a reconfigurable TextIOWrapper (e.g. pytest capture, a plain StringIO).
+            # Those handle unicode fine, so there is nothing to repair.
+            pass
+
+
 def main():
+    _make_stdio_encoding_safe()
     ap = argparse.ArgumentParser(description="Organise media into /movies and /tv, copy subs, and emit local NFOs (offline).")
     ap.add_argument("source")
     ap.add_argument("dest", nargs="?", default=None)
     ap.add_argument("--mode", choices=["move","copy"], default="move")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--dupe-mode", choices=["off","name","size","hash"], default="hash")
+    ap.add_argument(
+        "--no-import-dedupe",
+        action="store_true",
+        help="Do not scan movies/ and tv/ for duplicates; keep import files even when a matching library copy exists.",
+    )
     # NFO
     ap.add_argument("--emit-nfo", choices=["off","movie","tv","all"], default="all")
     ap.add_argument("--nfo-layout", choices=["same-stem","kodi"], default="same-stem")
@@ -41,6 +75,10 @@ def main():
     movies_root.mkdir(parents=True, exist_ok=True)
     tv_root.mkdir(parents=True, exist_ok=True)
 
+    lib_import_index = None
+    if args.dupe_mode != "off" and not args.no_import_dedupe:
+        lib_import_index = build_library_import_dup_index(movies_root, tv_root, args.dupe_mode)
+
     # Poster sieve config
     min_w, min_h = map(int, args.poster_min_wh.lower().split("x"))
     aspect_lo, aspect_hi = parse_range_pair(args.poster_aspect, "-", float)
@@ -50,6 +88,32 @@ def main():
     tv_episodes_processing = {}  # (series, season, episode) -> list of paths
 
     items = list(src_root.rglob("*"))
+
+    # Pre-scan: group videos per directory so we can distinguish a single-movie folder
+    # from a container (several distinct movies, e.g. a "James Bond" folder) and from a
+    # loose numbered series (e.g. "BUZZYBEE-1..13"). Container folders take their title
+    # from each filename; numbered-series folders are routed to /tv as episodes.
+    dir_videos = defaultdict(list)
+    for p in items:
+        if not p.is_file() or p.suffix.lower() not in VIDEO_EXTS:
+            continue
+        if any(part in IGNORED_PATH_COMPONENTS for part in p.parts):
+            continue
+        dir_videos[p.parent].append(p)
+
+    numbered_series = {}    # path -> (series, season, episode)
+    container_dirs = set()  # dirs holding >1 distinct movie -> title from filename
+    for d, vids in dir_videos.items():
+        if count_distinct_movies(vids) > 1:
+            container_dirs.add(d)
+        if d == src_root:
+            continue  # never treat the source root (a dumping ground) as one series
+        ser = detect_numbered_series(vids)
+        if ser:
+            series_name = _clean_title(d.name) or ser["series"]
+            for vp, ep in ser["episodes"].items():
+                numbered_series[vp] = (series_name, 1, ep)
+
     for path in items:
         if not path.is_file(): continue
         if path.suffix.lower() not in VIDEO_EXTS: continue
@@ -67,8 +131,27 @@ def main():
         # skip obvious samples
         if re.search(r"(?i)\bsample\b", path.name): continue
 
+        if lib_import_index is not None:
+            lib_match = lib_import_index.find_duplicate(path)
+            if lib_match is not None:
+                print(
+                    f"REMOVED DUPLICATE IMPORT: {path} -> already in library as {lib_match} [{args.dupe_mode}]"
+                )
+                if not args.dry_run:
+                    try:
+                        path.unlink(missing_ok=True)
+                    except OSError as e:
+                        print(f"[warn] could not remove duplicate import {path}: {e}")
+                    if args.mode == "move":
+                        prune_junk_then_empty_dirs(path.parent, src_root, bad_words)
+                continue
+
         quality = detect_quality(path.name)
-        is_tv, info = is_tv_episode(path.name, path)
+        if path in numbered_series:
+            series_name, forced_season, forced_ep = numbered_series[path]
+            is_tv, info = True, {"series": series_name, "season": forced_season, "ep1": forced_ep, "ep2": None}
+        else:
+            is_tv, info = is_tv_episode(path.name, path)
 
         if is_tv:
             series = _clean_title(info["series"])
@@ -130,7 +213,7 @@ def main():
                 write_episode_nfo(out_file, computed, base_meta, overwrite=args.overwrite_nfo, layout=args.nfo_layout)
 
         else:
-            movie_name, used_nfo = guess_movie_name(path, src_root)
+            movie_name, used_nfo = guess_movie_name(path, src_root, parent_is_container=path.parent in container_dirs)
             # Prefer (YYYY) over bare year in title (e.g. Blade Runner 2049)
             year_guess = guess_year_for_movie(path)
             part_suffix = movie_part_suffix(path)

@@ -177,8 +177,8 @@ def test_movie_cd1_cd2_preserves_part_in_filename(tmp_path):
 
 def test_duplicate_skip_in_hash_mode_prints_and_skips(tmp_path, capsys):
     """
-    When a duplicate exists in the destination and --dupe-mode hash is active,
-    CLI should print 'SKIP DUPLICATE' and not copy the candidate again.
+    When a duplicate exists in the library and --dupe-mode hash is active,
+    the CLI removes the import file and does not copy the candidate again.
     """
     src = tmp_path / "in"
     dst = tmp_path / "out"
@@ -199,9 +199,34 @@ def test_duplicate_skip_in_hash_mode_prints_and_skips(tmp_path, capsys):
     run_cli_in_proc(src, dst, ["--mode", "copy", "--emit-nfo", "movie", "--dupe-mode", "hash"])
 
     captured = capsys.readouterr().out
-    assert "SKIP DUPLICATE" in captured
+    assert "REMOVED DUPLICATE IMPORT" in captured
+    assert not candidate.exists()
     # Ensure no second copy was created with a different stem
     assert not (existing_dir / "Some Movie (2019) [1080p] (2).mkv").exists()
+
+
+def test_no_import_dedupe_skips_without_deleting_source(tmp_path, capsys):
+    """--no-import-dedupe disables library scan; per-destination SKIP DUPLICATE still applies."""
+    src = tmp_path / "in"
+    dst = tmp_path / "out"
+    src.mkdir()
+    existing_dir = dst / "movies" / "Some Movie"
+    existing_dir.mkdir(parents=True, exist_ok=True)
+    existing = existing_dir / "Some Movie (1080p).mkv"
+    blob = os.urandom(4096) + os.urandom(4096)
+    existing.write_bytes(blob)
+    candidate = src / "Some.Movie.2019.1080p.x265.mkv"
+    candidate.write_bytes(blob)
+
+    run_cli_in_proc(
+        src,
+        dst,
+        ["--mode", "copy", "--emit-nfo", "movie", "--dupe-mode", "hash", "--no-import-dedupe"],
+    )
+    out = capsys.readouterr().out
+    assert "SKIP DUPLICATE" in out
+    assert "REMOVED DUPLICATE IMPORT" not in out
+    assert candidate.exists()
 
 
 
@@ -272,10 +297,7 @@ def test_skip_items_already_under_dest_movies_or_tv(tmp_path, capsys):
 
 def test_tv_dupe_mode_hash_skips_and_prints(tmp_path, capsys):
     """
-    Covers the TV duplicate-skip branch:
-      if args.dupe_mode != "off":
-          dup = is_duplicate_in_dir(...)
-          if dup: print(...); continue
+    Library import dedupe removes the incoming file when hash matches an existing episode.
     """
     src = tmp_path / "in"
     dst = tmp_path / "out"
@@ -295,7 +317,8 @@ def test_tv_dupe_mode_hash_skips_and_prints(tmp_path, capsys):
     _run_cli([str(src), str(dst), "--mode", "copy", "--emit-nfo", "tv", "--dupe-mode", "hash"])
 
     out = capsys.readouterr().out
-    assert "SKIP DUPLICATE:" in out
+    assert "REMOVED DUPLICATE IMPORT:" in out
+    assert not ep.exists()
     # no "(2)" duplicate copy in dest
     assert not (series_dir / "Show Name - S01E01 (Other) (2).mkv").exists()
 
@@ -608,3 +631,31 @@ def test_carry_posters_called_in_movie_flow(tmp_path, monkeypatch):
 #     # Both merge points were exercised
 #     assert merges["dest_merge_seen"] is True, "merge_first must be called with dest_nfo metadata"
 #     assert called["merge_subs"] is True, "merge_subtitles must be called when subs or base_meta['subtitles'] present"
+
+def test_non_ascii_filename_does_not_abort_run(tmp_path, monkeypatch):
+    """A non-ASCII path must not kill the import on a legacy-codepage console.
+
+    Regression: on Windows stdout defaults to cp1252, so printing a filename containing
+    a combining diaeresis raised UnicodeEncodeError and aborted the whole run part-way.
+    """
+    src = tmp_path / "in"
+    dst = tmp_path / "out"
+    src.mkdir(parents=True)
+    # U+0308 COMBINING DIAERESIS — unmappable in cp1252, exactly as in the real fixture.
+    tricky = src / "Young Sheldon S01E08 Schro\u0308dinger's Cat.mkv"
+    tricky.write_bytes(b"payload")
+    later = src / "Another Show S01E01.mkv"
+    later.write_bytes(b"different payload")
+
+    # Simulate a cp1252 console: encoding errors here are what used to be fatal.
+    cp1252_stdout = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict")
+    monkeypatch.setattr(sys, "stdout", cp1252_stdout)
+    try:
+        run_cli_in_proc(src, dst, ["--mode", "copy", "--dupe-mode", "off"])
+    finally:
+        monkeypatch.undo()
+
+    # Both files processed — the run reached the end instead of dying on the first print.
+    assert (dst / "tv").exists()
+    organised = list((dst / "tv").rglob("*.mkv"))
+    assert len(organised) == 2, [p.name for p in organised]

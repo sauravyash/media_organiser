@@ -1,9 +1,99 @@
 from pathlib import Path
-from typing import Optional, Tuple
-from .constants import VIDEO_EXTS
-from .naming import clean_name
-from .constants import RESOLUTION_PATTERN
+from typing import Dict, Iterator, Optional, Tuple
+
 import hashlib
+
+from .constants import RESOLUTION_PATTERN, VIDEO_EXTS
+from .naming import clean_name
+
+
+def iter_library_video_files(movies_root: Path, tv_root: Path) -> Iterator[Path]:
+    for root in (movies_root, tv_root):
+        if not root.is_dir():
+            continue
+        for p in root.rglob("*"):
+            if p.is_file() and p.suffix.lower() in VIDEO_EXTS:
+                yield p
+
+
+class LibraryImportDupIndex:
+    """
+    Precomputed index of video files already under movies/ and tv/ for matching imports.
+    Rules match is_duplicate_in_dir per --dupe-mode: name (normalized stem), size (file size only),
+    hash (size + sampled MD5 fingerprint).
+    """
+
+    __slots__ = ("mode", "_by_name", "_by_size", "_by_size_fp")
+
+    def __init__(
+        self,
+        mode: str,
+        by_name: Dict[str, Path],
+        by_size: Dict[int, Path],
+        by_size_fp: Dict[Tuple[int, str], Path],
+    ) -> None:
+        self.mode = mode
+        self._by_name = by_name
+        self._by_size = by_size
+        self._by_size_fp = by_size_fp
+
+    def find_duplicate(self, candidate: Path) -> Optional[Path]:
+        if self.mode == "name":
+            return self._by_name.get(normalized_stem_ignore_quality(candidate))
+        try:
+            cand_size = candidate.stat().st_size
+        except OSError:
+            return None
+        if is_content_empty(cand_size):
+            return None
+        if self.mode == "size":
+            return self._by_size.get(cand_size)
+        try:
+            cand_fp = quick_fingerprint(candidate)
+        except OSError:
+            return None
+        return self._by_size_fp.get((cand_size, cand_fp[1]))
+
+
+def build_library_import_dup_index(movies_root: Path, tv_root: Path, mode: str) -> Optional[LibraryImportDupIndex]:
+    if mode == "off":
+        return None
+    by_name: Dict[str, Path] = {}
+    by_size: Dict[int, Path] = {}
+    by_size_fp: Dict[Tuple[int, str], Path] = {}
+    for p in iter_library_video_files(movies_root, tv_root):
+        try:
+            norm = normalized_stem_ignore_quality(p)
+            sz = p.stat().st_size
+        except (OSError, FileNotFoundError):
+            continue
+        if mode == "name":
+            by_name.setdefault(norm, p)
+        elif is_content_empty(sz):
+            # Size- and content-based matching says nothing about an empty file; never index one.
+            continue
+        elif mode == "size":
+            by_size.setdefault(sz, p)
+        elif mode == "hash":
+            try:
+                fp = quick_fingerprint(p)
+            except OSError:
+                continue
+            by_size_fp.setdefault((sz, fp[1]), p)
+    return LibraryImportDupIndex(mode, by_name, by_size, by_size_fp)
+
+def is_content_empty(size: int) -> bool:
+    """
+    Whether a file carries no content to compare.
+
+    Empty files are indistinguishable from one another under both `size` and `hash`
+    matching: every zero-byte file shares a size of 0 and the MD5 of the empty string.
+    Treating them as duplicates is unsafe because a matched import is *deleted*, and a
+    media inbox routinely accumulates unrelated zero-byte files from aborted or failed
+    downloads. Such files are never duplicates of each other; leave them for the user.
+    """
+    return size == 0
+
 
 def normalized_stem_ignore_quality(p: Path) -> str:
     s = clean_name(p.stem)
@@ -27,6 +117,8 @@ def is_duplicate_in_dir(candidate: Path, dest_dir: Path, mode: str = "hash") -> 
         return None
     cand_norm = normalized_stem_ignore_quality(candidate)
     cand_size = candidate.stat().st_size
+    if mode in ("size", "hash") and is_content_empty(cand_size):
+        return None
     cand_fp: Optional[Tuple[int, str]] = None
     for existing in dest_dir.glob("*"):
         if not existing.is_file() or existing.suffix.lower() not in VIDEO_EXTS:

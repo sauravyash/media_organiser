@@ -89,6 +89,11 @@ _PATTERNS = [
     re.compile(r"(?i)[\.\s_\-]+(?P<season>\d{1,2})[\.\s_\-]*E(?P<ep1>\d{1,3})"),
     re.compile(r"(?i)\bseason[\.\s_\-]+(?P<season>\d{1,2})[\.\s_\-]+episode[\.\s_\-]+(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]*(?P<ep2>\d{1,3}))?"),
     re.compile(r"(?i)(?:^|[\.\s_\-]+)Ep\s+(?P<ep1>\d{1,3})(?:[\.\s_\-]*[-&/]*(?P<ep2>\d{1,3}))?"),
+    # "Series - 101 - Title" style: a 3-4 digit SEE/SEEE code flanked by hyphens with an episode
+    # title after it (common in cartoon rips, e.g. "The Penguins of Madagascar - 101 - Gone in a
+    # Flash"). season = code // 100, episode = code % 100. Both-side hyphens + trailing title keep
+    # it from matching movie years like "2012 (2009)".
+    re.compile(r"(?i)\s[-–—]\s*(?P<season>\d{1,2})(?P<ep1>\d{2})\s*[-–—]\s*(?=\S)"),
 ]
 
 def _clean_title(s: str) -> str:
@@ -272,8 +277,11 @@ def movie_name_from_parents(path: Path, src_root=Path) -> Optional[str]:
             if resolution is None:
                 resolution = next((t.lower() for t in res_tokens), None)
 
-        # Truncate title at the first plausible release-year token (1900-2030), not e.g. 2049 in "Blade Runner 2049"
+        # Truncate title at the first plausible release-year token (1900-2030), not e.g. 2049 in "Blade Runner 2049".
+        # Never truncate at index 0: a folder title can legitimately start with a year (e.g. "2001 - A Space Odyssey").
         for i, tok in enumerate(title_tokens):
+            if i == 0:
+                continue
             if YEAR_PATTERN.fullmatch(tok):
                 try:
                     y = int(tok)
@@ -348,8 +356,12 @@ def guess_movie_name_from_file(filename: str) -> str:
         if resolution is None:
             resolution = next((t.lower() for t in res_tokens), None)
 
-    # truncate title at first plausible release-year token (1900-2030), not e.g. 2049 in "Blade Runner 2049"
+    # truncate title at first plausible release-year token (1900-2030), not e.g. 2049 in "Blade Runner 2049".
+    # Never truncate at index 0: a title can legitimately start with a year (e.g. "2001 - A Space Odyssey"),
+    # and truncating there would empty the title entirely.
     for i, tok in enumerate(title_tokens):
+        if i == 0:
+            continue
         if YEAR_PATTERN.fullmatch(tok):
             try:
                 y = int(tok)
@@ -369,13 +381,24 @@ def title_from_filename_for_generic_parent(path: Path) -> Optional[str]:
     Handles patterns like:
     - "2001 - Atlantis The Lost Empire.avi" -> "Atlantis The Lost Empire"
     - "01. John Henry (2000).mkv" -> "John Henry"
+
+    A leading "YEAR -" is only treated as a collection prefix when we are confident it is one:
+    if the name also carries a *different* trailing "(YEAR)" (the real release year), the leading
+    number belongs to the title (e.g. "2001 - A Space Odyssey (1968)") and we do not strip it,
+    returning None so the caller falls back to the filename-derived title.
     """
     stem = path.stem
-    
+
     # Pattern 1: "YEAR - Title" or "YEAR - Title (YEAR)"
-    year_title_match = re.match(r"^(?:19|20)\d{2}\s*[-–—]\s*(.+)$", stem)
+    year_title_match = re.match(r"^((?:19|20)\d{2})\s*[-–—]\s*(.+)$", stem)
     if year_title_match:
-        title_part = year_title_match.group(1)
+        leading_year = year_title_match.group(1)
+        title_part = year_title_match.group(2)
+        # If a different trailing (YEAR) is present, the leading number is part of the title,
+        # not a collection prefix — don't strip it. (e.g. "2001 - A Space Odyssey (1968)")
+        trailing_year_match = re.search(r"\((\d{4})\)\s*$", title_part)
+        if trailing_year_match and trailing_year_match.group(1) != leading_year:
+            return None
         # Strip trailing (YEAR) if present
         title_part = re.sub(r"\s*\(\d{4}\)\s*$", "", title_part)
         # Normalize spaces/dots
@@ -440,24 +463,87 @@ def guess_year_for_movie(path: Path) -> Optional[str]:
     return None
 
 
-def guess_movie_name(path: Path, src_root=Path) -> tuple[str, Path|None]:
+def guess_movie_name(path: Path, src_root=Path, parent_is_container: bool = False) -> tuple[str, Path|None]:
     used_nfo = find_nfo(path)
     if used_nfo:
         t = parse_local_nfo_for_title(used_nfo)
         if t: return t, used_nfo
-    
+
     # If parent is a generic collection dir, try extracting title from filename
     if path.parent and is_generic_collection_parent(path.parent.name):
         title_from_file = title_from_filename_for_generic_parent(path)
         if title_from_file:
             return title_from_file, used_nfo
         # No pattern matched; prefer file-based title when clearly different (e.g. Monsters University vs Monsters Inc)
-        file_based = guess_movie_name_from_file(path.stem)
+        file_based = guess_movie_name_from_file(path.name)
         by_parent = movie_name_from_parents(path, src_root=src_root)
         if file_based and by_parent and file_based.lower() not in by_parent.lower() and len(file_based) > 5:
             return file_based, used_nfo
-    
+
+    # When the immediate parent groups several DISTINCT movies (e.g. a "James Bond" folder
+    # holding Casino Royale, Goldfinger, ...), it is a container, not a single-movie folder:
+    # derive the title from each filename instead of stamping the folder name onto every file.
+    if parent_is_container:
+        return guess_movie_name_from_file(path.name), used_nfo
+
     by_parent = movie_name_from_parents(path, src_root=src_root)
     if by_parent:
         return by_parent, used_nfo
-    return guess_movie_name_from_file(path.stem), used_nfo
+    return guess_movie_name_from_file(path.name), used_nfo
+
+
+_TRAILING_NUM_RE = re.compile(r"^(?P<prefix>.*?)[\s._\-]*(?P<num>\d{1,3})$")
+
+
+def count_distinct_movies(video_paths) -> int:
+    """
+    Number of distinct movies among sibling video files, treating multi-part files
+    (CD1/CD2, Part 1/2) of the same title as one. Lets the caller tell a single-movie
+    (or multi-part) folder from a container that holds several different movies.
+    """
+    bases = set()
+    for p in video_paths:
+        base = MOVIE_PART_RE.sub("", Path(p).stem)
+        base = re.sub(r"[\s._\-]+", " ", base).strip().lower()
+        bases.add(base)
+    return len(bases)
+
+
+def detect_numbered_series(video_paths) -> Optional[dict]:
+    """
+    Decide whether sibling video files in one folder form a loose numbered series
+    (e.g. "BUZZYBEE-1..13", "Jane & the Dragon 8..22") that carries no SxxExx tokens.
+
+    Kept strict, to avoid misclassifying movie sequels/trilogies as episodes:
+      - at least 4 video files,
+      - none carries a release-year token (movies have them; loose episodes don't),
+      - every filename is "<shared prefix><sep><number>",
+      - all share one common prefix, and
+      - the episode numbers are distinct.
+
+    Returns {"series": <title>, "episodes": {path: episode_int}} or None.
+    """
+    paths = list(video_paths)
+    if len(paths) < 4:
+        return None
+    prefix_norm = None
+    prefix_display = None
+    episodes = {}
+    for p in paths:
+        stem = Path(p).stem
+        if YEAR_PATTERN.search(stem):
+            return None
+        m = _TRAILING_NUM_RE.match(stem)
+        if not m:
+            return None
+        norm = re.sub(r"[\s._\-]+", " ", m.group("prefix")).strip().lower()
+        if not norm:
+            return None
+        if prefix_norm is None:
+            prefix_norm, prefix_display = norm, m.group("prefix")
+        elif norm != prefix_norm:
+            return None
+        episodes[p] = int(m.group("num"))
+    if len(set(episodes.values())) < 2:
+        return None
+    return {"series": _clean_title(prefix_display), "episodes": episodes}

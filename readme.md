@@ -55,7 +55,7 @@ poetry run pytest -q
 Generate coverage:
 
 ```bash
-poetry run pytest --cov=1771771643media_organiser --cov-report=term --cov-report=xml
+poetry run pytest --cov=1786070734media_organiser --cov-report=term --cov-report=xml
 ```
 
 ---
@@ -74,11 +74,13 @@ services:
     environment:
       IMPORT_DIR: /data/import
       LIB_DIR: /data/library
+      MUSIC_LIB_DIR: /data/music
     ports:
       - "6767:6767"
     volumes:
       - /data/import:/data/import
       - /data/content:/data/library
+      - /data/music:/data/music
 ```
 
 The entrypoint (`entrypoint.sh`) does three things:
@@ -105,8 +107,12 @@ media_organiser/
   sidecars.py          # subtitle discovery + move/copy
   nfo.py               # read existing NFO, merge-first, write movie/episode NFOs
   posters.py           # (optional) local poster sieve and carry logic
-  web.py               # Flask upload UI (optional; used by Docker)
-  templates/           # HTML for web upload (e.g. upload.html)
+  web.py               # Flask upload UI + library dashboards (optional; used by Docker)
+  audit.py             # shared Issue model for the dashboards
+  library.py           # read-only audit of LIB_DIR/movies
+  music.py             # read-only audit of the beets library via `beet ls`
+  templates/           # HTML for web upload and dashboards
+  static/              # dashboard.css / dashboard.js
   cleanup.py           # cleanup helpers
   stabilize.py         # stabilisation helpers
 ```
@@ -119,6 +125,9 @@ media_organiser/
 * For **CLI-only** use: no mandatory third-party packages.
 * (Optional) **Pillow** for poster sieve support.
 * (Optional) **Flask** for the web upload interface (e.g. when using Docker or running `flask --app media_organiser.web:app run`).
+* (Optional) **Mutagen** and **requests** are installed automatically when using Poetry, for music metadata handling.
+* For best results with the Music Upload workflow, install system tools **ffmpeg** (with `libmp3lame`) to enable audio analysis/transcoding.
+* (Optional) **beets** for the music library dashboard at `/library/music`. It is invoked as an external command, so any install that puts `beet` on `PATH` works (`pipx install beets`, a distro package, or the same virtualenv).
 
 ---
 
@@ -140,6 +149,7 @@ poetry run media-organiser SOURCE [DEST]
   [--mode move|copy]
   [--dry-run]
   [--dupe-mode off|name|size|hash]
+  [--no-import-dedupe]
   [--emit-nfo off|movie|tv|all]
   [--nfo-layout same-stem|kodi]
   [--overwrite-nfo]
@@ -152,6 +162,7 @@ poetry run media-organiser SOURCE [DEST]
 Key flags:
 
 * `--dupe-mode` supports `hash` (fast fingerprint), `size`, or `name`.
+* Import-side library scan is enabled by default for video; use `--no-import-dedupe` to disable removing duplicate imports already present in `/movies` or `/tv`.
 * `--emit-nfo` writes NFO files (merge-first).
 * `--carry-posters` enables optional local poster filtering.
 
@@ -165,6 +176,92 @@ flask --app media_organiser.web:app run --host 0.0.0.0 --port 6767
 ```
 
 Then open `http://localhost:6767/`, upload files (or a folder to preserve structure); they are written to `IMPORT_DIR`. The CLI (or Docker watch) can then organise them into your library.
+
+---
+
+## Music upload (optional)
+
+If `mutagen`, `requests`, and `ffmpeg` are available, the web UI also exposes a **Music Upload** workflow at `/music`:
+
+* Upload audio files/folders into `IMPORT_DIR`.
+* Inspect and edit detected metadata in a table (title, artist, album, track #, year, bitrate, duration).
+* Play individual tracks with an inline audio player.
+* Call out to MusicBrainz to fetch recommended metadata for a track.
+* Enforce quality rules:
+  * Reject files below 256 kbps.
+  * Flag non-320 kbps or non-MP3 files as needing transcode.
+* Transcode to 320 kbps MP3 using `ffmpeg`/LAME and export into a **separate music library** directory.
+
+Environment variables:
+
+```bash
+export IMPORT_DIR=/path/to/import          # default: ./data/import
+export MUSIC_LIB_DIR=/path/to/music_lib    # default: ./data/music
+export MUSIC_IMPORT_DEDUPE=1               # default enabled; set 0/false/no/off to disable library duplicate scan
+```
+
+Music uploads (from the Music UI) and music transcode export both use `MUSIC_LIB_DIR`. During `/api/music/transcode`, the tool scans the music library for duplicate tracks (fingerprint + filename preference) and removes duplicate attempted imports by default; disable with `MUSIC_IMPORT_DEDUPE=0`. The existing video workflow continues to use the main library directory (`LIB_DIR`) for organise; video uploads go to `IMPORT_DIR`.
+
+---
+
+## Library dashboards (read-only)
+
+Two pages list what is **already in the destination library** so you can eyeball mislabels
+and metadata problems. Both are strictly read-only: they never rename, move or retag
+anything. Every finding comes with a suggested change for you to verify and apply yourself.
+
+### Movie library — `/library/movies`
+
+Lists every folder under `LIB_DIR/movies` with its video, NFO, subtitles and posters, and
+flags:
+
+| Issue | Severity | What it means |
+| --- | --- | --- |
+| `tv-episode-in-movies` | high | A `SxxExx` file or season pack landed under `/movies` |
+| `no-video-file` | high | Folder holds sidecars but no video (or is empty) |
+| `multiple-videos` | high | Several unrelated videos share one movie folder |
+| `duplicate-title` | high | Two folders resolve to the same movie |
+| `messy-folder-name` | medium | Folder still carries scene words, release-site branding, brackets or a year |
+| `leading-index` | medium | Folder starts with a collection index (`1. `, `02 - `) |
+| `missing-year` / `suspect-year` | medium | No release year, or a year that is really part of the title (`Blade Runner 2049`) |
+| `nfo-title-mismatch` | medium | The NFO `<title>` disagrees with the folder |
+| `quality-mismatch` | medium | Filename quality disagrees with the NFO |
+| `unreadable-nfo` | medium | The NFO could not be parsed |
+| `missing-nfo` | low | No NFO next to the video |
+| `unknown-quality` | low | Filed as `[Other]` because no resolution was detected |
+| `filename-mismatch` | low | Filename does not follow `Title (Year) [Quality]` |
+| `stale-nfo-path` | low | The NFO still points at the file's old name |
+
+```bash
+export LIB_DIR=/path/to/library      # default: ./data/library; movies are read from $LIB_DIR/movies
+export MOVIES_DIR=/somewhere/movies  # optional; overrides $LIB_DIR/movies outright
+```
+
+### Music library — `/library/music`
+
+Backed by **[beets](https://beets.io/)**: the page shells out to `beet ls` and never writes to
+the beets database. Tracks and albums each get their own tab, and each recommendation is the
+exact `beet` command that would fix it (e.g. `beet modify id:42 year=1994`), so you can copy
+it, check it, and run it yourself.
+
+Flags missing or placeholder artist/album/title/year/track/genre tags, tracks and albums with
+no MusicBrainz id (imported as-is rather than matched), lossy files under 128 kbps, duplicate
+tracks, albums with no tracks, and rows whose file is no longer on disk.
+
+beets is optional — without it the page explains what to install and which variables to set:
+
+```bash
+export BEET_BIN=/usr/local/bin/beet          # default: beet (must be on PATH)
+export BEETS_CONFIG=/path/to/config.yaml     # optional; passed as beet -c
+export BEETS_LIBRARY=/path/to/musiclibrary.db  # optional; passed as beet -l
+export BEETS_DIRECTORY=/path/to/music        # optional; passed as beet -d
+```
+
+> `BEETS_DIRECTORY` is beets' own music directory and is **not** the same as `MUSIC_LIB_DIR`,
+> which is where the Music Upload workflow exports transcoded MP3s.
+
+Both dashboards cache their scan for 60s (a large library is slow to walk); the **Rescan**
+button bypasses the cache. Tune with `DASHBOARD_CACHE_TTL=<seconds>`, or `0` to disable caching.
 
 ---
 

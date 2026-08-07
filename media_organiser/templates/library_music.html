@@ -1,0 +1,101 @@
+{% extends "base_upload.html" %}
+
+{% block title %}Media Organiser — Music Library{% endblock %}
+
+{% block subtitle %}Everything beets has in its library, with the tagging gaps worth checking by hand. Each recommendation is the beet command that would fix it.{% endblock %}
+
+{% block head_extra %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  <div class="page-head">
+    <div>
+      <h1>Music library</h1>
+      <div class="root" id="library-root">via the beets CLI</div>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn btn-primary" id="rescan">Rescan</button>
+    </div>
+  </div>
+
+  <div id="app"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+<script>
+  var esc = window.dashboardUtils.esc;
+
+  initDashboard({
+    mount: "#app",
+    endpoint: "{{ url_for('api_music_library') }}",
+    emptyMessage: "The beets library is empty. Import some music with: beet import /path/to/music",
+    unavailable: function (data) {
+      if (data.available) return null;
+      return '<div class="state error">' +
+        "<div>Could not read the beets library.</div>" +
+        '<div class="hint">' + esc(data.error || "") + "</div>" +
+        '<div class="hint">' +
+        "This dashboard shells out to <code>beet ls</code>, so beets has to be installed and " +
+        "reachable by the server. Configure it with:<br>" +
+        "<code>BEET_BIN</code> — path to the beet executable (default <code>beet</code>)<br>" +
+        "<code>BEETS_CONFIG</code> — path to config.yaml<br>" +
+        "<code>BEETS_LIBRARY</code> — path to the beets database<br>" +
+        "<code>BEETS_DIRECTORY</code> — beets music directory" +
+        "</div></div>";
+    },
+    tabs: [
+      {
+        id: "tracks",
+        label: "Tracks",
+        listKey: "tracks",
+        summaryKey: "summary",
+        unit: "tracks",
+        row: function (t) {
+          var num = t.track ? (t.disc ? t.disc + "-" : "") + t.track + ". " : "";
+          var quality = [t.format, t.bitrate ? t.bitrate + "kbps" : "", t.length].filter(Boolean).join(" · ");
+          return {
+            title: (t.artist || "?") + " — " + num + (t.title || "?"),
+            meta: [
+              { value: t.album || "no album" },
+              { value: t.year || "no year" },
+              { value: quality },
+              { value: t.matched ? "matched" : "unmatched" }
+            ],
+            detail: t.path || ""
+          };
+        }
+      },
+      {
+        id: "albums",
+        label: "Albums",
+        listKey: "albums",
+        summaryKey: "album_summary",
+        errorKey: "album_error",
+        unit: "albums",
+        row: function (a) {
+          return {
+            title: (a.albumartist || "?") + " — " + (a.album || "?"),
+            meta: [
+              { value: a.year || "no year" },
+              { value: a.tracks + " tracks" },
+              { value: a.albumtype || "" },
+              { value: a.matched ? "matched" : "unmatched" }
+            ],
+            detail: a.path || ""
+          };
+        }
+      }
+    ],
+    onLoad: function (data) {
+      var bits = ["beet: " + data.beet];
+      if (data.library) bits.push("library: " + data.library);
+      if (data.config) bits.push("config: " + data.config);
+      document.getElementById("library-root").textContent = bits.join("   ");
+    }
+  });
+</script>
+{% endblock %}
