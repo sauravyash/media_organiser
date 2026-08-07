@@ -241,3 +241,67 @@ def test_build_library_import_dup_index_hash_finds_cross_tree_match(tmp_path):
 def test_build_library_import_dup_index_off_returns_none(tmp_path):
     assert build_library_import_dup_index(tmp_path / "m", tmp_path / "t", "off") is None
 
+
+
+# ---------- empty-file safety ----------
+# A matched import is DELETED by the CLI, so an empty file must never match on size or
+# content: every zero-byte file shares a size of 0 and the MD5 of the empty string, and a
+# media inbox routinely holds unrelated zero-byte files from aborted downloads.
+
+def test_is_content_empty():
+    assert dup.is_content_empty(0) is True
+    assert dup.is_content_empty(1) is False
+
+
+def test_hash_mode_never_matches_two_distinct_empty_files(tmp_path):
+    dest = tmp_path / "movies"
+    write(dest / "Some Movie (2019).mkv", b"")
+    cand = tmp_path / "in" / "A Totally Different Film (2021).mkv"
+    write(cand, b"")
+    assert is_duplicate_in_dir(cand, dest, "hash") is None
+
+
+def test_size_mode_never_matches_two_distinct_empty_files(tmp_path):
+    dest = tmp_path / "movies"
+    write(dest / "Some Movie (2019).mkv", b"")
+    cand = tmp_path / "in" / "A Totally Different Film (2021).mkv"
+    write(cand, b"")
+    assert is_duplicate_in_dir(cand, dest, "size") is None
+
+
+def test_name_mode_still_matches_empty_files(tmp_path):
+    """Name matching is unaffected: identical titles are duplicates whatever the size."""
+    dest = tmp_path / "movies"
+    existing = dest / "Some Movie (2019) [1080p].mkv"
+    write(existing, b"")
+    cand = tmp_path / "in" / "Some Movie (2019) [720p].mkv"
+    write(cand, b"")
+    assert is_duplicate_in_dir(cand, dest, "name") == existing
+
+
+def test_empty_files_are_not_indexed_for_hash_or_size(tmp_path):
+    movies = tmp_path / "movies"
+    tv = tmp_path / "tv"
+    write(movies / "Placeholder (2019).mkv", b"")
+    cand = tmp_path / "incoming.mkv"
+    write(cand, b"")
+    for mode in ("hash", "size"):
+        idx = build_library_import_dup_index(movies, tv, mode)
+        assert idx is not None
+        assert idx.find_duplicate(cand) is None, f"empty file matched in {mode} mode"
+
+
+def test_nonempty_matching_still_works_alongside_empty_files(tmp_path):
+    """The guard must not suppress genuine matches when empty files are also present."""
+    movies = tmp_path / "movies"
+    tv = tmp_path / "tv"
+    write(movies / "Junk.mkv", b"")           # empty decoy
+    blob = os.urandom(700)
+    real = movies / "Real Movie (2020).mkv"
+    write(real, blob)
+
+    cand = tmp_path / "incoming.mkv"
+    write(cand, blob)
+    idx = build_library_import_dup_index(movies, tv, "hash")
+    assert idx.find_duplicate(cand) == real
+    assert is_duplicate_in_dir(cand, movies, "hash") == real
