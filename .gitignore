@@ -28,5 +28,7 @@ build/
 # Docker
 docker-compose.yml
 
+data/
+
 # Local scratch media fixtures
 /testing/

@@ -4,6 +4,7 @@ import os
 
 import media_organiser.duplicates as dup
 from media_organiser.duplicates import (
+    build_library_import_dup_index,
     normalized_stem_ignore_quality,
     quick_fingerprint,
     is_duplicate_in_dir,
@@ -219,4 +220,24 @@ def test_is_duplicate_file_not_found_error_continue(tmp_path, monkeypatch):
     result = is_duplicate_in_dir(candidate, dest, mode="size")
     assert result is None
 
+
+def test_build_library_import_dup_index_hash_finds_cross_tree_match(tmp_path):
+    movies = tmp_path / "movies"
+    tv = tmp_path / "tv"
+    lib = tv / "X" / "Season 01"
+    lib.mkdir(parents=True)
+    blob = os.urandom(800)
+    existing = lib / "X - S01E01 (Other).mkv"
+    write(existing, blob)
+
+    cand = tmp_path / "incoming.mkv"
+    write(cand, blob)
+
+    idx = build_library_import_dup_index(movies, tv, "hash")
+    assert idx is not None
+    assert idx.find_duplicate(cand) == existing
+
+
+def test_build_library_import_dup_index_off_returns_none(tmp_path):
+    assert build_library_import_dup_index(tmp_path / "m", tmp_path / "t", "off") is None
 

@@ -55,7 +55,7 @@ poetry run pytest -q
 Generate coverage:
 
 ```bash
-poetry run pytest --cov=1771771643media_organiser --cov-report=term --cov-report=xml
+poetry run pytest --cov=1784960777media_organiser --cov-report=term --cov-report=xml
 ```
 
 ---
@@ -74,11 +74,13 @@ services:
     environment:
       IMPORT_DIR: /data/import
       LIB_DIR: /data/library
+      MUSIC_LIB_DIR: /data/music
     ports:
       - "6767:6767"
     volumes:
       - /data/import:/data/import
       - /data/content:/data/library
+      - /data/music:/data/music
 ```
 
 The entrypoint (`entrypoint.sh`) does three things:
@@ -119,6 +121,8 @@ media_organiser/
 * For **CLI-only** use: no mandatory third-party packages.
 * (Optional) **Pillow** for poster sieve support.
 * (Optional) **Flask** for the web upload interface (e.g. when using Docker or running `flask --app media_organiser.web:app run`).
+* (Optional) **Mutagen** and **requests** are installed automatically when using Poetry, for music metadata handling.
+* For best results with the Music Upload workflow, install system tools **ffmpeg** (with `libmp3lame`) to enable audio analysis/transcoding.
 
 ---
 
@@ -140,6 +144,7 @@ poetry run media-organiser SOURCE [DEST]
   [--mode move|copy]
   [--dry-run]
   [--dupe-mode off|name|size|hash]
+  [--no-import-dedupe]
   [--emit-nfo off|movie|tv|all]
   [--nfo-layout same-stem|kodi]
   [--overwrite-nfo]
@@ -152,6 +157,7 @@ poetry run media-organiser SOURCE [DEST]
 Key flags:
 
 * `--dupe-mode` supports `hash` (fast fingerprint), `size`, or `name`.
+* Import-side library scan is enabled by default for video; use `--no-import-dedupe` to disable removing duplicate imports already present in `/movies` or `/tv`.
 * `--emit-nfo` writes NFO files (merge-first).
 * `--carry-posters` enables optional local poster filtering.
 
@@ -165,6 +171,31 @@ flask --app media_organiser.web:app run --host 0.0.0.0 --port 6767
 ```
 
 Then open `http://localhost:6767/`, upload files (or a folder to preserve structure); they are written to `IMPORT_DIR`. The CLI (or Docker watch) can then organise them into your library.
+
+---
+
+## Music upload (optional)
+
+If `mutagen`, `requests`, and `ffmpeg` are available, the web UI also exposes a **Music Upload** workflow at `/music`:
+
+* Upload audio files/folders into `IMPORT_DIR`.
+* Inspect and edit detected metadata in a table (title, artist, album, track #, year, bitrate, duration).
+* Play individual tracks with an inline audio player.
+* Call out to MusicBrainz to fetch recommended metadata for a track.
+* Enforce quality rules:
+  * Reject files below 256 kbps.
+  * Flag non-320 kbps or non-MP3 files as needing transcode.
+* Transcode to 320 kbps MP3 using `ffmpeg`/LAME and export into a **separate music library** directory.
+
+Environment variables:
+
+```bash
+export IMPORT_DIR=/path/to/import          # default: ./data/import
+export MUSIC_LIB_DIR=/path/to/music_lib    # default: ./data/music
+export MUSIC_IMPORT_DEDUPE=1               # default enabled; set 0/false/no/off to disable library duplicate scan
+```
+
+Music uploads (from the Music UI) and music transcode export both use `MUSIC_LIB_DIR`. During `/api/music/transcode`, the tool scans the music library for duplicate tracks (fingerprint + filename preference) and removes duplicate attempted imports by default; disable with `MUSIC_IMPORT_DEDUPE=0`. The existing video workflow continues to use the main library directory (`LIB_DIR`) for organise; video uploads go to `IMPORT_DIR`.
 
 ---
 

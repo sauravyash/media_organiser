@@ -1,49 +1,10 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Media Organiser — Upload</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@400;600&display=swap" rel="stylesheet">
-  <style>
-    :root {
-      --bg: #0f1216;
-      --surface: #1a1e26;
-      --border: #2a303c;
-      --text: #e6edf3;
-      --muted: #7d8590;
-      --accent: #3fb950;
-      --accent-dim: #238636;
-      --danger: #f85149;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: var(--bg);
-      color: var(--text);
-      font-family: "Outfit", system-ui, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 1.5rem;
-    }
-    h1 {
-      font-family: "JetBrains Mono", monospace;
-      font-weight: 600;
-      font-size: 1.25rem;
-      letter-spacing: 0.02em;
-      color: var(--muted);
-      margin-bottom: 0.25rem;
-    }
-    .sub {
-      font-size: 0.875rem;
-      color: var(--muted);
-      margin-bottom: 2rem;
-    }
+{% extends "base_upload.html" %}
+
+{% block title %}Media Organiser — Video Upload{% endblock %}
+
+{% block subtitle %}Upload media to import. Files are organised into /movies and /tv automatically.{% endblock %}
+
+{% block base_styles_extra %}
     #form {
       width: 100%;
       max-width: 32rem;
@@ -366,12 +327,9 @@
       color: var(--muted);
       font-family: "JetBrains Mono", monospace;
     }
-  </style>
-</head>
-<body>
-  <h1>media_organiser</h1>
-  <p class="sub">Upload media to import. Files are organised into /movies and /tv automatically.</p>
+{% endblock %}
 
+{% block content %}
   <form id="form" action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
     <div class="zone" id="zone" role="button" tabindex="0">
       <input type="file" name="files" id="files" multiple>
@@ -411,7 +369,9 @@
       </div>
     </div>
   </div>
+{% endblock %}
 
+{% block scripts %}
   <script>
     const zone = document.getElementById("zone");
     const filesInput = document.getElementById("files");
@@ -502,6 +462,52 @@
       return current;
     }
 
+    // Determine selection state of a folder subtree:
+    // 'all'   => all visible children selected
+    // 'none'  => no visible children selected
+    // 'some'  => mix of selected/unselected (partial)
+    function getFolderSelectionState(folderNode) {
+      if (!folderNode || !folderNode.children) return 'none';
+
+      let hasSelected = false;
+      let hasUnselected = false;
+
+      Object.keys(folderNode.children).forEach(name => {
+        const child = folderNode.children[name];
+        // Ignore hidden entries entirely for selection purposes
+        if (isHidden(name)) {
+          return;
+        }
+
+        if (child.type === 'file') {
+          const selected = selectedFiles.has(child.path);
+          if (selected) {
+            hasSelected = true;
+          } else {
+            hasUnselected = true;
+          }
+        } else if (child.type === 'folder') {
+          const state = getFolderSelectionState(child);
+          if (state === 'all') {
+            hasSelected = true;
+          } else if (state === 'none') {
+            hasUnselected = true;
+          } else if (state === 'some') {
+            hasSelected = true;
+            hasUnselected = true;
+          }
+        }
+      });
+
+      if (!hasSelected && !hasUnselected) {
+        // Folder is effectively empty (or only has hidden children)
+        return 'none';
+      }
+      if (hasSelected && !hasUnselected) return 'all';
+      if (!hasSelected && hasUnselected) return 'none';
+      return 'some';
+    }
+
     // Render breadcrumb
     function renderBreadcrumb() {
       breadcrumb.innerHTML = '';
@@ -533,24 +539,6 @@
 
       renderBreadcrumb();
 
-      // Cleanup: Remove all hidden files from selectedFiles before rendering
-      // This ensures hidden files are never selected by default
-      function removeHiddenFilesFromSelection(node) {
-        if (!node) return;
-        Object.keys(node).forEach(childName => {
-          const child = node[childName];
-          if (child.type === 'file' && isHidden(childName)) {
-            selectedFiles.delete(child.path);
-          } else if (child.type === 'folder' && child.children) {
-            removeHiddenFilesFromSelection(child.children);
-          }
-        });
-      }
-      // Remove hidden files from the entire tree
-      if (folderTree) {
-        removeHiddenFilesFromSelection(folderTree);
-      }
-
       const items = Object.keys(current).sort((a, b) => {
         const aIsFolder = current[a].type === 'folder';
         const bIsFolder = current[b].type === 'folder';
@@ -574,6 +562,7 @@
         checkbox.type = 'checkbox';
         const itemId = item.path || (currentPath.length > 0 ? currentPath.join('/') + '/' + name : name);
         checkbox.id = `file-${itemId}`;
+        checkbox.indeterminate = false;
         
         // Check if this item is hidden
         const hidden = isHidden(name);
@@ -584,13 +573,7 @@
             selectedFiles.delete(item.path);
             checkbox.checked = false;
           } else {
-            // For non-hidden files, check if they should be selected
-            // They should be selected if they're already in selectedFiles (from showFolderBrowser or selectAllFilesInFolder)
             checkbox.checked = selectedFiles.has(item.path);
-            // Ensure they're in selectedFiles if checked
-            if (checkbox.checked) {
-              selectedFiles.add(item.path);
-            }
           }
           checkbox.onchange = (e) => {
             if (e.target.checked) {
@@ -598,60 +581,25 @@
             } else {
               selectedFiles.delete(item.path);
             }
-            updateSelectedCount();
+            // Re-render so parent folders update (including partial state)
+            renderFolder();
           };
         } else {
-          // For folders, recursively select/deselect all non-hidden children
-          // IMPORTANT: This runs BEFORE individual file checkboxes are created,
-          // so we need to ensure hidden files are excluded here
-          function selectAllFilesInFolder(folderNode) {
-            if (!folderNode || !folderNode.children) return;
-            Object.keys(folderNode.children).forEach(childName => {
-              const child = folderNode.children[childName];
-              if (child.type === 'file') {
-                // Always remove hidden files first, then only add non-hidden files
-                if (isHidden(childName)) {
-                  selectedFiles.delete(child.path);
-                } else {
-                  selectedFiles.add(child.path);
-                }
-              } else if (child.type === 'folder') {
-                // Skip hidden folders - don't select files inside them
-                if (!isHidden(childName)) {
-                  selectAllFilesInFolder(child);
-                }
-              }
-            });
-          }
-          // Only call this if we want to select files in this folder
-          // Since we're initializing, we want to select non-hidden files
-          selectAllFilesInFolder(item);
-          
-          // Check if folder should be checked (has any selected non-hidden children)
-          // IMPORTANT: Hidden folders should always be unchecked
-          function hasSelectedChildren(folderNode) {
-            if (!folderNode || !folderNode.children) return false;
-            for (const childName of Object.keys(folderNode.children)) {
-              const child = folderNode.children[childName];
-              if (child.type === 'file' && !isHidden(childName) && selectedFiles.has(child.path)) {
-                return true;
-              } else if (child.type === 'folder' && !isHidden(childName) && hasSelectedChildren(child)) {
-                return true;
-              }
-            }
-            return false;
-          }
-          // Hidden folders should always be unchecked
-          checkbox.checked = hidden ? false : hasSelectedChildren(item);
-          
+          // Folder checkbox reflects aggregate selection of its visible descendants
+          const state = hidden ? 'none' : getFolderSelectionState(item);
+          checkbox.checked = state === 'all';
+          checkbox.indeterminate = state === 'some';
+
           checkbox.onchange = (e) => {
             // Don't allow hidden folders to be checked
             if (hidden) {
               checkbox.checked = false;
+              checkbox.indeterminate = false;
               return;
             }
             toggleFolderSelection(item, e.target.checked);
-            updateSelectedCount();
+            // Re-render so this folder and its ancestors show correct state
+            renderFolder();
           };
         }
 
@@ -696,37 +644,23 @@
       updateSelectedCount();
     }
 
-    // Toggle folder selection (select/deselect all children)
+    // Toggle folder selection (select/deselect all descendants)
     function toggleFolderSelection(folderItem, checked) {
       function traverse(node) {
         if (!node || !node.children) return;
         Object.keys(node.children).forEach(name => {
           const child = node.children[name];
+          if (isHidden(name)) {
+            return;
+          }
           if (child.type === 'file') {
             if (checked) {
-              // When checking, only add non-hidden files
-              if (!isHidden(name)) {
-                selectedFiles.add(child.path);
-              }
+              selectedFiles.add(child.path);
             } else {
-              // When unchecking, remove all files
               selectedFiles.delete(child.path);
             }
-            // Update checkbox if it exists
-            const checkbox = document.getElementById(`file-${child.path}`);
-            if (checkbox) {
-              checkbox.checked = checked && !isHidden(name);
-            }
           } else if (child.type === 'folder') {
-            // Skip hidden folders - don't traverse into them or select their contents
-            if (!isHidden(name)) {
-              traverse(child);
-              // Update folder checkbox if it exists
-              const folderCheckbox = document.getElementById(`file-${child.path || name}`);
-              if (folderCheckbox) {
-                folderCheckbox.checked = checked;
-              }
-            }
+            traverse(child);
           }
         });
       }
@@ -1363,5 +1297,4 @@
       }
     });
   </script>
-</body>
-</html>
+{% endblock %}

@@ -303,3 +303,45 @@ def test_upload_success_returns_200(client, import_dir):
     out = r.get_json()
     assert out["saved"] == ["good.txt"]
     assert out["rejected"] == []
+
+
+def test_music_transcode_respects_env_dedupe_flag(tmp_path, monkeypatch):
+    monkeypatch.setenv("MUSIC_LIB_DIR", str(tmp_path / "music"))
+    music_dir = Path(str(tmp_path / "music"))
+    music_dir.mkdir(parents=True, exist_ok=True)
+    track = music_dir / "x.mp3"
+    track.write_bytes(b"abc")
+    monkeypatch.setenv("MUSIC_IMPORT_DEDUPE", "0")
+
+    calls = {}
+
+    def fake_ensure(src, export, *, scan_library_duplicates=True):
+        calls["scan"] = scan_library_duplicates
+        return {"status": "ok", "output_path": str(src)}
+
+    monkeypatch.setattr("media_organiser.web.audio_tools.ensure_mp3_320", fake_ensure)
+    c = app.test_client()
+    r = c.post("/api/music/transcode", json={"path": "x.mp3"})
+    assert r.status_code == 200
+    assert calls["scan"] is False
+
+
+def test_music_transcode_payload_overrides_env_dedupe_flag(tmp_path, monkeypatch):
+    monkeypatch.setenv("MUSIC_LIB_DIR", str(tmp_path / "music"))
+    music_dir = Path(str(tmp_path / "music"))
+    music_dir.mkdir(parents=True, exist_ok=True)
+    track = music_dir / "x.mp3"
+    track.write_bytes(b"abc")
+    monkeypatch.setenv("MUSIC_IMPORT_DEDUPE", "0")
+
+    calls = {}
+
+    def fake_ensure(src, export, *, scan_library_duplicates=True):
+        calls["scan"] = scan_library_duplicates
+        return {"status": "ok", "output_path": str(src)}
+
+    monkeypatch.setattr("media_organiser.web.audio_tools.ensure_mp3_320", fake_ensure)
+    c = app.test_client()
+    r = c.post("/api/music/transcode", json={"path": "x.mp3", "scan_library_duplicates": True})
+    assert r.status_code == 200
+    assert calls["scan"] is True
