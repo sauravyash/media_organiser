@@ -55,7 +55,7 @@ poetry run pytest -q
 Generate coverage:
 
 ```bash
-poetry run pytest --cov=1784960777media_organiser --cov-report=term --cov-report=xml
+poetry run pytest --cov=1786066743media_organiser --cov-report=term --cov-report=xml
 ```
 
 ---
