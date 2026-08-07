@@ -146,7 +146,7 @@ def music_metadata():
         analysis = audio_tools.analyse_audio(dest)
         tracks.append(
             {
-                "path": str(dest.relative_to(music_dir)),
+                "path": dest.relative_to(music_dir).as_posix(),
                 "title": analysis.title,
                 "artist": analysis.artist,
                 "album": analysis.album,
@@ -236,10 +236,10 @@ def music_transcode():
     if result.get("output_path"):
         out_path = Path(result["output_path"])
         try:
-            rel_out = out_path.relative_to(music_dir)
+            rel_out = out_path.relative_to(music_dir).as_posix()
         except ValueError:
             rel_out = out_path.name
-        result["output_path"] = str(rel_out)
+        result["output_path"] = rel_out
     return jsonify(result)
 
 
@@ -294,8 +294,10 @@ def upload():
             # Ensure dest is resolved (absolute) before saving
             dest = dest.resolve()
             f.save(str(dest))
-            # Both paths are now guaranteed to be absolute, so relative_to() will work
-            saved.append(str(dest.relative_to(base_dir)))
+            # Both paths are now guaranteed to be absolute, so relative_to() will work.
+            # as_posix() keeps the JSON API on "/" separators on every platform, matching
+            # the webkitRelativePath-style paths the browser sends and splits on.
+            saved.append(dest.relative_to(base_dir).as_posix())
         except Exception as e:
             # Catch any errors during save (permissions, disk full, etc.)
             rejected.append(f"{rel_path} (error: {str(e)})")
