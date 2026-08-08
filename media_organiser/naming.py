@@ -382,10 +382,13 @@ def title_from_filename_for_generic_parent(path: Path) -> Optional[str]:
     - "2001 - Atlantis The Lost Empire.avi" -> "Atlantis The Lost Empire"
     - "01. John Henry (2000).mkv" -> "John Henry"
 
-    A leading "YEAR -" is only treated as a collection prefix when we are confident it is one:
-    if the name also carries a *different* trailing "(YEAR)" (the real release year), the leading
-    number belongs to the title (e.g. "2001 - A Space Odyssey (1968)") and we do not strip it,
-    returning None so the caller falls back to the filename-derived title.
+    A leading number is only treated as a collection prefix when we are confident it is one.
+    For "YEAR -": if the name also carries a *different* trailing "(YEAR)" (the real release
+    year), the leading number belongs to the title (e.g. "2001 - A Space Odyssey (1968)") and
+    we do not strip it. For a plain index, the number must be followed by punctuation or a
+    double space ("01. John Henry"), never a single space, or titles that simply start with a
+    number lose it ("21 Jump Street" -> "Jump Street", "12 Angry Men" -> "Angry Men").
+    Either way we return None so the caller falls back to the filename-derived title.
     """
     stem = path.stem
 
@@ -407,8 +410,11 @@ def title_from_filename_for_generic_parent(path: Path) -> Optional[str]:
         if title_part:
             return titlecase_soft(title_part)
     
-    # Pattern 2: "NN. Title" or "NN. Title (YEAR)" or "NN. Title ... Year ... Quality"
-    index_title_match = re.match(r"^\d{1,3}[.\s)\-]+\s*(.+)$", stem)
+    # Pattern 2: "NN. Title" or "NN. Title (YEAR)" or "NN. Title ... Year ... Quality".
+    # The separator must be punctuation or a double space, matching the index handling in
+    # movie_name_from_parents and library._LEADING_INDEX_RE; a single space means the number
+    # is part of the title.
+    index_title_match = re.match(r"^\d{1,3}(?:\s*[.\-–—)]|\s{2,})\s*(.+)$", stem)
     if index_title_match:
         title_part = index_title_match.group(1)
         # Strip trailing (YEAR) if present (e.g. "John Henry (2000)")
