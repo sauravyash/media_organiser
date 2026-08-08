@@ -180,7 +180,8 @@ def main():
                     print(f"SKIP DUPLICATE: {path} == {dup} [{args.dupe_mode}]")
                     continue
 
-            do_move_or_copy(path, out_file, args.mode, args.dry_run, quality)
+            # safe_path may rename on collision; everything below must follow the real file
+            out_file = do_move_or_copy(path, out_file, args.mode, args.dry_run, quality)
             # Read source NFO before moving sidecars (sidecars include .nfo and get moved)
             src_nfo = find_nfo(path)
             base_meta_from_src = merge_first({}, read_nfo_to_meta(src_nfo)) if src_nfo else {}
@@ -230,7 +231,8 @@ def main():
                     print(f"SKIP DUPLICATE: {path} == {dup} [{args.dupe_mode}]")
                     continue
 
-            do_move_or_copy(path, out_file, args.mode, args.dry_run, quality)
+            # safe_path may rename on collision; everything below must follow the real file
+            out_file = do_move_or_copy(path, out_file, args.mode, args.dry_run, quality)
             # Read source NFO before moving sidecars (sidecars include .nfo and get moved)
             base_meta_from_src = merge_first({}, read_nfo_to_meta(used_nfo)) if used_nfo else {}
             subs = copy_move_sidecars(path, out_file, do_move_or_copy, args.mode, args.dry_run)

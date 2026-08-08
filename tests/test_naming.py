@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from media_organiser.cli import main
-from media_organiser.naming import is_tv_episode, detect_quality, clean_name, guess_movie_name_from_file, guess_movie_name, movie_part_suffix, titlecase_soft, movie_name_from_parents, is_generic_collection_parent, normalise_movie_title_for_display, detect_numbered_series, count_distinct_movies
+from media_organiser.naming import is_tv_episode, detect_quality, clean_name, guess_movie_name_from_file, guess_movie_name, movie_part_suffix, titlecase_soft, movie_name_from_parents, is_generic_collection_parent, normalise_movie_title_for_display, detect_numbered_series, count_distinct_movies, title_from_filename_for_generic_parent
 
 
 def test_tv_patterns_basic():
@@ -666,3 +666,38 @@ def test_tv_pattern_ep_xx_defaults_to_season_1():
     assert ok
     assert info["season"] == 1, "Should default to season 1 if no season info found"
     assert info["ep1"] == 10
+
+def test_generic_parent_keeps_a_number_that_starts_the_title(tmp_path):
+    """
+    Regression: a leading number was stripped as a collection index even when separated
+    by a single space, so "21 Jump Street" imported as "Jump Street".
+    """
+    src = tmp_path / "in"
+    parent = src / "Movies"
+    parent.mkdir(parents=True)
+    for name, expected in [
+        ("21 Jump Street (2012).avi", "21 Jump Street"),
+        ("12 Angry Men (1957).mp4", "12 Angry Men"),
+        ("300 (2006).mp4", "300"),
+        ("9 (2009).mp4", "9"),
+    ]:
+        path = parent / name
+        path.touch()
+        movie_name, _ = guess_movie_name(path, src)
+        assert normalise_movie_title_for_display(movie_name) == expected, name
+
+
+def test_generic_parent_still_strips_a_real_index(tmp_path):
+    """Punctuation or a double space after the number still marks a collection index."""
+    src = tmp_path / "in"
+    parent = src / "Disney Short Films"
+    parent.mkdir(parents=True)
+    for name, expected in [
+        ("01. John Henry (2000).mkv", "John Henry"),
+        ("1. The Hunger Games.mp4", "The Hunger Games"),
+        ("3 - Return of the King (2003).mp4", "Return of the King"),
+        ("07) Prometheus (2012).mkv", "Prometheus"),
+    ]:
+        path = parent / name
+        path.touch()
+        assert title_from_filename_for_generic_parent(path) == titlecase_soft(expected), name

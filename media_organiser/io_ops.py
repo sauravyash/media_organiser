@@ -53,12 +53,19 @@ def safe_path(path: Path, quality: str = None) -> Path:
             return cand
         i += 1
 
-def do_move_or_copy(src: Path, dst: Path, mode: str, dry_run: bool, quality: str = None):
+def do_move_or_copy(src: Path, dst: Path, mode: str, dry_run: bool, quality: str = None) -> Path:
+    """
+    Place ``src`` at ``dst`` and return where it actually landed.
+
+    ``safe_path`` may pick a different name when ``dst`` is taken, so callers must
+    use the returned path for anything that follows the file (NFO, fingerprint,
+    sidecars) — writing those against the requested path describes the wrong file.
+    """
     dst = safe_path(dst, quality)
     action = "COPY" if mode == "copy" else "MOVE"
     print(f"{action}: {src} -> {dst}")
     if dry_run:
-        return
+        return dst
     if mode == "copy":
         shutil.copy2(src, dst)
     else:
@@ -67,3 +74,4 @@ def do_move_or_copy(src: Path, dst: Path, mode: str, dry_run: bool, quality: str
         except shutil.Error:
             shutil.copy2(src, dst)
             src.unlink(missing_ok=True)
+    return dst

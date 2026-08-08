@@ -23,8 +23,9 @@ def copy_move_sidecars(src_video: Path, dst_video: Path, mover, mode: str, dry_r
     for side in find_related_sidecars(src_video):
         suffix = side.stem[len(src_video.stem):]
         dst = dst_video.with_name(dst_video.stem + suffix + side.suffix)
-        mover(side, dst, mode, dry_run)
+        # The mover may rename on collision; record where the subtitle really landed.
+        actual = mover(side, dst, mode, dry_run) or dst
         # Only subs go into the subtitles list (NFO is moved but not listed as a subtitle)
         if side.suffix.lower() in SUB_EXTS:
-            moved.append({"file": dst.name, "lang": guess_lang_from_suffix(suffix) or ""})
+            moved.append({"file": actual.name, "lang": guess_lang_from_suffix(suffix) or ""})
     return moved
