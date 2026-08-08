@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -80,6 +81,10 @@ class Match:
     def status(self) -> str:
         if self.source is not None:
             return "matched"
+        if self.title and self.candidates:
+            # Which copy it is stays unknown, but every candidate is the same film,
+            # so the name to restore is not in doubt.
+            return "title-certain"
         return "ambiguous" if len(self.candidates) > 1 else "unmatched"
 
     @property
@@ -160,9 +165,17 @@ def _nfo_sourcepath(video: Path) -> Optional[str]:
     return (el.text or "").strip() if el is not None and el.text else None
 
 
+# "Citizen Kane (1941) 2.mp4" - a bare number after a parenthesised year is a
+# copy marker left by a file manager, not part of the title.
+_COPY_MARKER_RE = re.compile(r"(?<=\))\s+\d{1,2}\s*$")
+
+
 def _title_for(source: Entry, containers: set[Path]) -> str:
     """What a fixed re-import would call this file."""
     p = Path(source.path)
+    if _COPY_MARKER_RE.search(p.stem):
+        p = p.with_name(_COPY_MARKER_RE.sub("", p.stem) + p.suffix)
+        source = Entry(str(p), source.size, source.fingerprint, live=False)
     if source.live:
         # Authoritative: same call the CLI makes, against the real tree.
         name, _ = guess_movie_name(p, p.parent, parent_is_container=p.parent in containers)
@@ -209,6 +222,12 @@ def match_all(collapsed: list[Entry], source: list[Entry]) -> list[Match]:
                 m.method = "size collision, no fingerprint agreement"
         if m.source is not None:
             m.title = _title_for(m.source, containers)
+        elif len(m.candidates) > 1:
+            by_path = {e.path: e for e in source}
+            titles = {_title_for(by_path[c], containers) for c in m.candidates if c in by_path}
+            if len(titles) == 1:
+                m.title = titles.pop()
+                m.method = f"{m.method}; all candidates are the same film"
         matches.append(m)
     return matches
 
@@ -228,6 +247,12 @@ def report(matches: list[Match], source: list[Entry], out_dir: Path) -> dict[str
             ])
 
     matched_sources = {m.source.path for m in matches if m.source}
+    # In a title-certain group every candidate is the same film, so one stands in for
+    # the group; prefer the shallowest path, which is the original rather than a copy.
+    for m in matches:
+        if m.status == "title-certain":
+            matched_sources.add(min(m.candidates, key=lambda c: (c.count("\\") + c.count("/"), len(c))))
+
     with (out_dir / "reimport.txt").open("w", encoding="utf-8") as fh:
         for path in sorted(matched_sources):
             fh.write(path + "\n")
@@ -239,7 +264,7 @@ def report(matches: list[Match], source: list[Entry], out_dir: Path) -> dict[str
         for e in sorted(untouched, key=lambda e: e.path):
             w.writerow([e.size, e.path])
 
-    counts = {"matched": 0, "ambiguous": 0, "unmatched": 0}
+    counts = {"matched": 0, "title-certain": 0, "ambiguous": 0, "unmatched": 0}
     for m in matches:
         counts[m.status] += 1
     counts["source_elsewhere"] = len(untouched)
@@ -294,7 +319,8 @@ def main() -> int:
                 print(f"      candidate: {c}")
 
     print(f"\n{len(collapsed)} collapsed files: {counts['matched']} matched, "
-          f"{counts['ambiguous']} ambiguous, {counts['unmatched']} unmatched")
+          f"{counts['title-certain']} title-certain, {counts['ambiguous']} ambiguous, "
+          f"{counts['unmatched']} unmatched")
     if checked:
         print(f"cross-check against NFO sourcepath: {len(checked) - len(disagreed)}/{len(checked)} agree"
               + ("" if not disagreed else f" - {len(disagreed)} DISAGREE, see mapping.tsv"))
