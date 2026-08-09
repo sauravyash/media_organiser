@@ -219,3 +219,30 @@ def test_agreeing_nfo_leaves_the_file_recoverable(library, tmp_path):
     (p,) = recover.plan(folder, library, recover.read_mapping(tsv))
     assert p.status == "recoverable"
     assert p.note == ""
+
+
+@pytest.mark.parametrize("nfo_source,mapped", [
+    # the NFO recorded the file manager's copy, the join picked its byte-identical twin
+    (r"F:\Metropolis (1927) 2.mp4", r"F:\Metropolis (1927).mp4"),
+    (r"F:\Mad Max (1979) 2.mp4", r"F:\New folder\Movies\Mad Max (1979).mp4"),
+    # "Mad Max 2" keeps its 2: only a number after the parenthesised year is a marker
+    (r"F:\Mad Max 2 (1981) 2.mp4", r"F:\New folder\Movies\Mad Max 2 (1981).mp4"),
+    (r"F:\Lawrence of Arabia (1962) 2.mp4", r"F:\Lawrence Of Arabia (1962).mp4"),
+])
+def test_a_copy_marker_alone_is_not_a_disagreement(library, tmp_path, nfo_source, mapped):
+    folder = library / "F"
+    _collapsed(folder, "F (1927) [Other].mp4", nfo_source)
+    tsv = _mapping(tmp_path, [("matched", "F (1927) [Other].mp4", mapped, "")])
+
+    (p,) = recover.plan(folder, library, recover.read_mapping(tsv))
+    assert p.status == "recoverable"
+    assert p.note == ""
+
+
+def test_a_different_film_is_still_a_disagreement(library, tmp_path):
+    folder = library / "F"
+    _collapsed(folder, "F (1927) [Other].mp4", r"F:\Nosferatu (1922) 2.mp4")
+    tsv = _mapping(tmp_path, [("matched", "F (1927) [Other].mp4", r"F:\Metropolis (1927).mp4", "")])
+
+    (p,) = recover.plan(folder, library, recover.read_mapping(tsv))
+    assert p.status == "needs-review"
