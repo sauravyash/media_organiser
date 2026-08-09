@@ -505,8 +505,45 @@ def test_count_distinct_movies_treats_multipart_as_one():
     """CD1/CD2 (or Part 1/2) of one film count as a single movie, not a container."""
     parts = [Path("Inception (2010)/Inception CD1.avi"), Path("Inception (2010)/Inception CD2.avi")]
     assert count_distinct_movies(parts) == 1
+    halves = [Path("GWTW/Gone with the Wind part 1.avi"), Path("GWTW/Gone with the Wind part 2.avi")]
+    assert count_distinct_movies(halves) == 1
     distinct = [Path("James Bond/Goldfinger (1964).mp4"), Path("James Bond/Skyfall (2012).mp4")]
     assert count_distinct_movies(distinct) == 2
+
+
+def test_count_distinct_movies_separates_films_titled_part_n():
+    """Deathly Hallows Part 1 and Part 2 are two films, so their folder is a container."""
+    sequels = [
+        Path("Harry Potter/Deathly Hallows Part 1 (2010).mkv"),
+        Path("Harry Potter/Deathly Hallows Part 2 (2011).mkv"),
+    ]
+    assert count_distinct_movies(sequels) == 2
+
+
+@pytest.mark.parametrize("name", [
+    "Harry Potter and the Deathly Hallows Part 1 (2010).mp4",
+    "Hunger Games - Mockingjay Part 1 (2014).mp4",
+    "Colour of Magic (Part 1), The (2008).mp4",
+])
+def test_part_in_title_is_not_a_disc_marker(name):
+    """A 'Part N' the film is actually called must not become a ' CD N' suffix."""
+    assert movie_part_suffix(Path("F:/") / name) == ""
+
+
+def test_movie_folder_ending_in_part_n_is_not_a_disc_folder():
+    assert movie_part_suffix(Path("F:/Deathly Hallows Part 1/video.mkv")) == ""
+    assert movie_part_suffix(Path("F:/Some Movie/CD 2/video.avi")) == " CD 2"
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("Gone with the Wind (1939) part 1.avi", " CD 1"),
+    ("Gone.with.the.Wind.1939.DVDRip.XviD.part2-GRP.avi", " CD 2"),
+    ("Titanic part 1 of 2.avi", " CD 1"),
+    ("Slumdog.Millionaire.2008.CD1.mp4", " CD 1"),
+    ("Inception CD1.avi", " CD 1"),
+])
+def test_trailing_part_marker_still_detected(name, expected):
+    assert movie_part_suffix(Path("F:/") / name) == expected
 
 
 def test_container_folder_uses_filename_title_not_folder_name(tmp_path):
