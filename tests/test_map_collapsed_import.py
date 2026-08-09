@@ -149,6 +149,35 @@ def test_nfo_disagreement_is_surfaced(trees):
     assert "investigate" in m.agrees_with_nfo
 
 
+def test_windows_source_paths_read_correctly_on_a_posix_server():
+    """
+    The usual flow takes the inventory on Windows and joins it on the server, where a
+    backslash is an ordinary character. Reading those paths natively made every name
+    comparison fail and every candidate title differ.
+    """
+    assert mapper.as_pure(r"F:\New folder\Movies\Casablanca (1942).mp4").name == "Casablanca (1942).mp4"
+    assert mapper.as_pure("/import/F/Casablanca.1942.mp4").name == "Casablanca.1942.mp4"
+
+    nfo = "/import/F/Casablanca.1942.DVDRip.mp4"
+    m = mapper.Match(
+        collapsed=mapper.Entry("/movies/F/F (1942) [Other].mp4", 5000),
+        source=mapper.Entry(r"F:\Casablanca.1942.DVDRip.mp4", 5000),
+        method="size",
+        nfo_source=nfo,
+    )
+    assert m.agrees_with_nfo == "yes"
+
+
+def test_windows_source_paths_yield_one_title_for_the_same_film():
+    """Two copies of one film on a Windows drive must agree on a title when joined on Linux."""
+    copies = [
+        mapper.Entry(r"F:\Casablanca (1942).mp4", 5000),
+        mapper.Entry(r"F:\New folder\Movies\Casablanca (1942).mp4", 5000),
+        mapper.Entry(r"F:\Casablanca (1942) 2.mp4", 5000),
+    ]
+    assert {mapper._title_for(e, set()) for e in copies} == {"Casablanca (1942)"}
+
+
 def test_inventory_round_trip_matches_across_machines(trees, tmp_path):
     """The cross-machine flow: neither side is readable when the join runs."""
     source, collapsed = trees
