@@ -18,7 +18,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .audit import Issue, sort_issues, summarise, worst_severity
+from .audit import (
+    Issue,
+    VERB_RENAME_FILE,
+    VERB_RENAME_FOLDER,
+    VERB_WRITE_NFO,
+    sort_issues,
+    summarise,
+    worst_severity,
+)
 from .constants import (
     POSTER_NAMES,
     RESOLUTION_PATTERN,
@@ -96,6 +104,23 @@ def canonical_stem(title: str, year: Optional[str], quality: str, part: str = ""
     return f"{title} {f'({year}) ' if year else ''}[{quality}]{part}"
 
 
+def _action(verb: str, src: Path, dst: Optional[Path] = None, stat_src: bool = False) -> dict:
+    """Describe a change as something :mod:`media_organiser.fixes` can carry out.
+
+    ``size``/``mtime`` are recorded so the fix path can tell whether the file
+    moved on under it between the scan and the click that applies the change.
+    """
+    action = {"verb": verb, "src": str(src), "dst": str(dst) if dst else ""}
+    if stat_src:
+        try:
+            st = src.stat()
+            action["size"] = st.st_size
+            action["mtime"] = st.st_mtime
+        except OSError:
+            pass
+    return action
+
+
 def _nfo_for(video: Path) -> Optional[Path]:
     """The NFO belonging to ``video`` under either supported layout."""
     same_stem = video.with_suffix(".nfo")
@@ -168,12 +193,15 @@ def _audit_folder(folder: Path, videos: list[Path], leftovers: list[str]) -> lis
     noise = _folder_noise(name)
     if noise:
         cleaned = suggest_clean_title(name)
+        renameable = bool(cleaned) and cleaned != name
         issues.append(Issue(
             kind="messy-folder-name",
             severity="medium",
             message=f"Folder name still carries {', '.join(noise)}.",
-            suggestion=(f"Rename folder to {cleaned!r}" if cleaned and cleaned != name
+            suggestion=(f"Rename folder to {cleaned!r}" if renameable
                         else "Clean the folder name by hand."),
+            action=(_action(VERB_RENAME_FOLDER, folder, folder.parent / cleaned)
+                    if renameable else None),
         ))
 
     return issues
@@ -235,6 +263,7 @@ def _audit_video(folder: Path, video: Path, nfo: Optional[Path], meta: dict) -> 
             severity="low",
             message=f"No NFO next to {video.name!r}.",
             suggestion="Re-run the organiser with --emit-nfo all to generate one.",
+            action=_action(VERB_WRITE_NFO, video, video.with_suffix(".nfo")),
         ))
     else:
         if not meta:
@@ -272,6 +301,7 @@ def _audit_video(folder: Path, video: Path, nfo: Optional[Path], meta: dict) -> 
                         severity="low",
                         message=f"NFO still points at {recorded_name!r}; the file is now {video.name!r}.",
                         suggestion="Re-run the organiser with --overwrite-nfo to refresh the NFO.",
+                        action=_action(VERB_WRITE_NFO, video, nfo),
                     ))
 
     part = movie_part_suffix(video)
@@ -283,6 +313,11 @@ def _audit_video(folder: Path, video: Path, nfo: Optional[Path], meta: dict) -> 
             severity="low",
             message=f"Filename does not follow 'Title (Year) [Quality]': {video.name!r}.",
             suggestion=f"Rename to {expected}{video.suffix}",
+            # Renamed in place: ``video.parent`` keeps CD1/CD2 subfolders where
+            # they are, and a folder rename applied first is remapped over this
+            # destination by the fix pipeline.
+            action=_action(VERB_RENAME_FILE, video,
+                           video.parent / f"{expected}{video.suffix}", stat_src=True),
         ))
 
     return issues

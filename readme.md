@@ -237,6 +237,40 @@ export LIB_DIR=/path/to/library      # default: ./data/library; movies are read 
 export MOVIES_DIR=/somewhere/movies  # optional; overrides $LIB_DIR/movies outright
 ```
 
+### Fixing what the audit found — `/library/fix`, `/library/triage`, `/library/trash`
+
+The audit above only reads. These three pages are the write side, and every change they make
+is journalled so it can be undone.
+
+**`/library/fix`** applies the recommendations that have exactly one correct answer —
+`filename-mismatch`, `messy-folder-name`, `missing-nfo` and `stale-nfo-path`. Tick what you
+want, preview the `from → to` for each, and apply. Order is enforced server-side no matter how
+you select: duplicates are set aside first, then folders are renamed, then the files inside
+them, and NFOs are written last so they record the final path. A rename whose target already
+exists is **refused**, never renumbered — the `(2)` suffix `safe_path` appends on import is
+what produced most of the duplicate pairs in the first place.
+
+**`/library/triage`** walks the folders holding a real decision, one at a time. Files that
+share a size are fingerprinted, so byte-identical copies are labelled *safe to remove* while
+genuinely different encodes get a warning instead. CD1/CD2 halves are locked and can never be
+triaged away. Keyboard: `1`–`9` pick the keeper, `enter` trashes the rest, `s` skips,
+`←`/`→` move.
+
+**`/library/trash`** lists every batch with what it still holds and how much space undoing or
+emptying would move. Nothing is ever deleted outright: a removed file moves to `.trash/<batch>/`
+under the library root — the same filesystem, so it is a rename rather than a multi-gigabyte
+copy — and a `.ignore` marker keeps Jellyfin and Emby from indexing it. Undo replays a batch in
+reverse, verifying size and mtime first and refusing to overwrite anything that has since taken
+the old name.
+
+```bash
+export TRASH_DIR=/somewhere/.trash   # optional; default is <movies parent>/.trash
+                                     # keep it on the library's filesystem or trashing turns into a copy
+```
+
+The journal lives at `<movies parent>/.media_organiser/journal.jsonl`, one JSON object per
+operation.
+
 ### Music library — `/library/music`
 
 Backed by **[beets](https://beets.io/)**: the page shells out to `beet ls` and never writes to

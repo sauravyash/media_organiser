@@ -1,0 +1,34 @@
+{% extends "base_upload.html" %}
+
+{% block title %}Media Organiser — Mechanical fixes{% endblock %}
+
+{% block subtitle %}Renames and NFO writes the audit already worked out, applied in bulk and reversibly.{% endblock %}
+
+{% block head_extra %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='fixes.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="page">
+  {% with fix_tab = 'fix' %}{% include "_fix_nav.html" %}{% endwith %}
+
+  <div class="page-head">
+    <div>
+      <h1>Mechanical fixes</h1>
+      <div class="root">Only changes with one correct answer. Anything needing a judgement call stays in triage.</div>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn btn-primary" id="rescan">Rescan</button>
+    </div>
+  </div>
+
+  <div id="app"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+<script src="{{ url_for('static', filename='fixes.js') }}"></script>
+<script>initFixPage("#app");</script>
+{% endblock %}

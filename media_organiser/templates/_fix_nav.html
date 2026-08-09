@@ -1,0 +1,7 @@
+{# Sub-navigation shared by the three write-side pages. `fix_tab` selects one. #}
+<nav class="subnav">
+  <a href="{{ url_for('fix_page') }}" {% if fix_tab == 'fix' %}class="active"{% endif %}>Mechanical fixes</a>
+  <a href="{{ url_for('triage_page') }}" {% if fix_tab == 'triage' %}class="active"{% endif %}>Duplicate triage</a>
+  <a href="{{ url_for('trash_page') }}" {% if fix_tab == 'trash' %}class="active"{% endif %}>Trash &amp; undo</a>
+  <a href="{{ url_for('movie_library') }}">Back to the audit</a>
+</nav>

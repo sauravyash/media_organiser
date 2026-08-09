@@ -7,6 +7,7 @@ from flask import Flask, request, render_template, jsonify, redirect, url_for, s
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from . import audio_tools
+from . import fixes
 from . import musicbrainz_client
 from .library import audit_movies, get_movies_dir
 from .music import scan_music
@@ -48,6 +49,11 @@ def _cached(key: str, builder, refresh: bool = False) -> dict:
 
 def _wants_refresh() -> bool:
     return request.args.get("refresh") in ("1", "true", "yes")
+
+
+def _invalidate_dashboard_cache() -> None:
+    """Drop memoised scans after a write, so the next read sees the new names."""
+    _dashboard_cache.clear()
 
 
 def _env_flag(name: str, default: bool = True) -> bool:
@@ -337,6 +343,129 @@ def music_library():
 def api_music_library():
     """JSON payload backing the music library dashboard (from `beet ls`)."""
     return jsonify(_cached("music", scan_music, refresh=_wants_refresh()))
+
+
+# ---------------------------------------------------------------------------
+# Applying fixes
+#
+# The dashboards above only read. Everything below writes, so each route goes
+# through media_organiser.fixes, which journals what it did and can undo it.
+# ---------------------------------------------------------------------------
+
+# Issue kinds that need a person to choose between real alternatives, rather
+# than a rename the audit could already spell out.
+TRIAGE_KINDS = ("multiple-videos", "duplicate-title", "no-video-file")
+
+
+@app.route("/library/fix")
+def fix_page():
+    """Bulk-apply the mechanical fixes the audit already worked out."""
+    return render_template("library_fix.html", active_mode="movie-fix")
+
+
+@app.route("/library/triage")
+def triage_page():
+    """Decide, one folder at a time, which copy of a movie to keep."""
+    return render_template("library_triage.html", active_mode="movie-fix")
+
+
+@app.route("/library/trash")
+def trash_page():
+    """Everything the fix pipeline has set aside, with undo."""
+    return render_template("library_trash.html", active_mode="movie-fix")
+
+
+@app.route("/api/library/fix/plan")
+def api_fix_plan():
+    """Mechanical actions grouped by issue kind. Reads only."""
+    kinds = [k for k in (request.args.get("kinds") or "").split(",") if k] or None
+    payload = _cached("movies", audit_movies, refresh=_wants_refresh())
+    plan = fixes.plan_mechanical(payload.get("entries") or [], kinds)
+    plan["generated_at"] = payload.get("generated_at")
+    plan["root"] = payload.get("root")
+    return jsonify(plan)
+
+
+@app.route("/api/library/fix/apply", methods=["POST"])
+def api_fix_apply():
+    payload = request.get_json(silent=True) or {}
+    actions = payload.get("actions")
+    if not isinstance(actions, list) or not actions:
+        return jsonify({"error": "No actions supplied"}), 400
+    if len(actions) > 5000:
+        return jsonify({"error": "Too many actions in one batch; apply in smaller runs"}), 400
+
+    result = fixes.apply_actions(actions, dry_run=bool(payload.get("dry_run")))
+    if not result.get("dry_run"):
+        _invalidate_dashboard_cache()
+    return jsonify(result)
+
+
+@app.route("/api/library/movies/triage")
+def api_triage_list():
+    """Folders holding a decision, cheapest data first — no hashing here."""
+    kinds = set(k for k in (request.args.get("kinds") or "").split(",") if k) or set(TRIAGE_KINDS)
+    payload = _cached("movies", audit_movies, refresh=_wants_refresh())
+    folders = []
+    for entry in payload.get("entries") or []:
+        matched = [i for i in (entry.get("issues") or []) if i.get("kind") in kinds]
+        if not matched:
+            continue
+        folders.append({
+            "folder": entry.get("folder"),
+            "path": entry.get("path"),
+            "title": entry.get("title"),
+            "year": entry.get("year"),
+            "size": entry.get("size"),
+            "severity": entry.get("severity"),
+            "video_count": len(entry.get("videos") or []),
+            "issues": matched,
+        })
+    return jsonify({
+        "root": payload.get("root"),
+        "generated_at": payload.get("generated_at"),
+        "folders": folders,
+        "total": len(folders),
+    })
+
+
+@app.route("/api/library/movies/triage/folder")
+def api_triage_folder():
+    """Per-file specs for one folder, fingerprinting only same-size candidates."""
+    raw = request.args.get("path") or ""
+    folder = fixes.resolve_under_root(raw)
+    movies_root = get_movies_dir()
+    if folder is None or not folder.is_dir():
+        return jsonify({"error": "Unknown folder"}), 404
+    if folder != movies_root and movies_root not in folder.parents:
+        return jsonify({"error": "Folder is outside the movie library"}), 400
+    return jsonify(fixes.inspect_folder(folder))
+
+
+@app.route("/api/library/trash")
+def api_trash():
+    return jsonify(fixes.trash_summary())
+
+
+@app.route("/api/library/trash/undo", methods=["POST"])
+def api_trash_undo():
+    payload = request.get_json(silent=True) or {}
+    batch = payload.get("batch")
+    if not isinstance(batch, str) or not batch:
+        return jsonify({"error": "No batch supplied"}), 400
+    result = fixes.undo_batch(batch)
+    _invalidate_dashboard_cache()
+    return jsonify(result), (400 if result.get("error") else 200)
+
+
+@app.route("/api/library/trash/empty", methods=["POST"])
+def api_trash_empty():
+    payload = request.get_json(silent=True) or {}
+    batch = payload.get("batch")
+    if not isinstance(batch, str) or not batch:
+        return jsonify({"error": "No batch supplied"}), 400
+    result = fixes.empty_batch(batch)
+    return jsonify(result), (400 if result.get("error") else 200)
 
 
 def run_server(host: str = "0.0.0.0", port: int = 6767, debug: bool = False):
