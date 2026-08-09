@@ -34,7 +34,7 @@ import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
+from pathlib import Path
 from typing import Iterable, Optional
 import xml.etree.ElementTree as ET
 
@@ -42,23 +42,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from media_organiser.constants import VIDEO_EXTS  # noqa: E402
 from media_organiser.duplicates import quick_fingerprint  # noqa: E402
+from media_organiser.io_ops import as_pure  # noqa: E402
 from media_organiser.naming import (  # noqa: E402
     count_distinct_movies,
     guess_movie_name,
     guess_movie_name_from_file,
     guess_year_for_movie,
+    has_copy_marker,
     normalise_movie_title_for_display,
+    strip_copy_marker,
 )
-
-
-def as_pure(path: str) -> PurePath:
-    """
-    Read a path that was recorded on another machine. An inventory taken on Windows is
-    normally joined on the server, where ``Path`` treats a backslash as an ordinary
-    character - ``F:\\Casablanca (1942).mp4`` becomes one filename, drive letter and all,
-    and every name-based comparison against it silently fails.
-    """
-    return PureWindowsPath(path) if "\\" in path else PurePosixPath(path)
 
 
 @dataclass
@@ -175,24 +168,27 @@ def _nfo_sourcepath(video: Path) -> Optional[str]:
     return (el.text or "").strip() if el is not None and el.text else None
 
 
-# "Citizen Kane (1941) 2.mp4" - a bare number after a parenthesised year is a
-# copy marker left by a file manager, not part of the title.
-_COPY_MARKER_RE = re.compile(r"(?<=\))\s+\d{1,2}\s*$")
+def _original_first(candidate: str) -> tuple:
+    """
+    Rank interchangeable copies so the best-named one wins: a name with no copy marker
+    first, then the shallowest path - the original rather than something dragged into
+    a subfolder.
+    """
+    pure = as_pure(candidate)
+    return (has_copy_marker(pure.stem), candidate.count("\\") + candidate.count("/"), len(candidate))
 
 
 def _title_for(source: Entry, containers: set[Path]) -> str:
     """What a fixed re-import would call this file."""
     if source.live:
         p = Path(source.path)
-        if _COPY_MARKER_RE.search(p.stem):
-            p = p.with_name(_COPY_MARKER_RE.sub("", p.stem) + p.suffix)
+        p = p.with_name(strip_copy_marker(p.stem) + p.suffix)
         # Authoritative: same call the CLI makes, against the real tree.
         name, _ = guess_movie_name(p, p.parent, parent_is_container=p.parent in containers)
     else:
         # The path was recorded elsewhere, so only its filename is safe to read here.
         pure = as_pure(source.path)
-        stem = _COPY_MARKER_RE.sub("", pure.stem)
-        p = Path(stem + pure.suffix)
+        p = Path(strip_copy_marker(pure.stem) + pure.suffix)
         name = guess_movie_name_from_file(p.name)
     title = normalise_movie_title_for_display(name)
     year = guess_year_for_movie(p)
@@ -261,10 +257,10 @@ def report(matches: list[Match], source: list[Entry], out_dir: Path) -> dict[str
 
     matched_sources = {m.source.path for m in matches if m.source}
     # In a title-certain group every candidate is the same film, so one stands in for
-    # the group; prefer the shallowest path, which is the original rather than a copy.
+    # the group; prefer the best-named copy, which is the original rather than a duplicate.
     for m in matches:
         if m.status == "title-certain":
-            matched_sources.add(min(m.candidates, key=lambda c: (c.count("\\") + c.count("/"), len(c))))
+            matched_sources.add(min(m.candidates, key=_original_first))
 
     with (out_dir / "reimport.txt").open("w", encoding="utf-8") as fh:
         for path in sorted(matched_sources):

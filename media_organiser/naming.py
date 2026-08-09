@@ -333,6 +333,19 @@ def _part_number(m: re.Match) -> str:
     return m.group(1) or m.group(2) or m.group(3)
 
 
+# "Citizen Kane (1941) 2.mp4" - a bare number after a parenthesised year is a copy
+# marker left by a file manager, not part of the title.
+_COPY_MARKER_RE = re.compile(r"(?<=\))\s+\d{1,2}\s*$")
+
+
+def has_copy_marker(stem: str) -> bool:
+    return bool(_COPY_MARKER_RE.search(stem))
+
+
+def strip_copy_marker(stem: str) -> str:
+    return _COPY_MARKER_RE.sub("", stem)
+
+
 def movie_part_suffix(path: Path) -> str:
     """
     If the path (filename stem or parent dir) indicates a multi-part movie (CD1, CD2, Part1, etc.),

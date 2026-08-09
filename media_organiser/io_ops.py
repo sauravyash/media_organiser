@@ -1,7 +1,28 @@
 # io_ops.py
-from pathlib import Path
+from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 import shutil
 import re
+
+
+def as_pure(path: str) -> PurePath:
+    """
+    Read a path that was recorded on another machine. An inventory taken on Windows is
+    normally read back on the server, where ``Path`` treats a backslash as an ordinary
+    character - ``F:\\Casablanca (1942).mp4`` becomes one filename, drive letter and all,
+    and every name-based comparison against it silently fails.
+    """
+    return PureWindowsPath(path) if "\\" in path else PurePosixPath(path)
+
+
+def as_local_path(path: str) -> Path:
+    """
+    A foreign path's components as a local relative Path, so ``.name`` and ``.parent``
+    read the way the recording machine meant them. The drive or root is dropped: it
+    names nothing here, and keeping it would make the path look absolute.
+    """
+    pure = as_pure(path)
+    parts = pure.parts[1:] if pure.anchor else pure.parts
+    return Path(*parts) if parts else Path(pure.name)
 
 # Quality order for comparison (higher index = higher quality)
 QUALITY_ORDER = ["Other", "480p", "576p", "720p", "1080p", "2160p", "4320p"]

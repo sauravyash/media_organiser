@@ -6,7 +6,13 @@ When ``find_nfo`` handed one stray NFO to every video in a flat import folder,
 every file was written as ``<StrayTitle> (<Year>) [<Quality>].<ext>`` into one
 folder, and colliding names picked up ``(2)``, ``(3)``… suffixes. The NFOs that
 did get written still record ``<originalfilename>`` and ``<sourcepath>``, so the
-files they belong to can be renamed back; the rest have to be identified by hand.
+files they belong to can be renamed back.
+
+Where the NFOs are missing - or wrong, being the metadata the bad import wrote -
+``--mapping`` takes the identification from ``map_collapsed_import.py`` instead,
+which joins the folder against the source tree on file size and content
+fingerprint. It covers files with no NFO at all, and outranks the NFO where both
+name a source; a disagreement between them is flagged rather than moved.
 
 This re-derives each name with the organiser's own naming functions, so a
 recovered file lands exactly where a correct import would have put it.
@@ -14,8 +20,13 @@ recovered file lands exactly where a correct import would have put it.
     # report only (default)
     python scripts/recover_flattened_import.py /data/content/movies/F
 
+    # with the size join doing the identifying
+    python scripts/recover_flattened_import.py /data/content/movies/F \\
+        --mapping import-mapping/mapping.tsv
+
     # rename and move for real
-    python scripts/recover_flattened_import.py /data/content/movies/F --apply
+    python scripts/recover_flattened_import.py /data/content/movies/F \\
+        --mapping import-mapping/mapping.tsv --apply
 
 Unidentified files are left untouched unless --quarantine is given.
 """
@@ -32,14 +43,16 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from media_organiser.constants import VIDEO_EXTS  # noqa: E402
-from media_organiser.io_ops import safe_path  # noqa: E402
+from media_organiser.io_ops import as_local_path, as_pure, safe_path  # noqa: E402
 from media_organiser.naming import (  # noqa: E402
     detect_quality,
     guess_movie_name_from_file,
     guess_year_for_movie,
+    has_copy_marker,
     movie_name_from_parents,
     movie_part_suffix,
     normalise_movie_title_for_display,
+    strip_copy_marker,
 )
 from media_organiser.nfo import xml_indent  # noqa: E402
 
@@ -55,6 +68,7 @@ class Recovery:
     note: str = ""
 
     flagged: bool = False        # NFO may describe a different file — do not move blindly
+    via: str = ""                # what identified it: "mapping" or "nfo"
 
     @property
     def status(self) -> str:
@@ -83,7 +97,11 @@ _PLACEHOLDER_STEMS = {
 
 def _derive(original: str, shared_parent: Optional[str]) -> tuple[str, Optional[str], str, str]:
     """Title, year, quality and part suffix for an original path, as the CLI would."""
-    src = Path(original)
+    # The original was recorded on whichever machine ran the import, so read its
+    # separators rather than this machine's. "Casablanca (1942) 2.mp4" is a file
+    # manager's copy, and that trailing number is not part of the film's name.
+    src = as_local_path(original)
+    src = src.with_name(strip_copy_marker(src.stem) + src.suffix)
     if src.stem.strip().lower() in _PLACEHOLDER_STEMS:
         title = ""
     else:
@@ -99,7 +117,40 @@ def _derive(original: str, shared_parent: Optional[str]) -> tuple[str, Optional[
     return title, guess_year_for_movie(src), detect_quality(src.name), movie_part_suffix(src)
 
 
-def plan(folder: Path, movies_root: Path) -> list[Recovery]:
+def _original_first(candidate: str) -> tuple:
+    """
+    Rank interchangeable copies so the best-named one wins: a name with no copy marker
+    first, then the shallowest path - the original rather than something dragged into
+    a subfolder.
+    """
+    pure = as_pure(candidate)
+    return (has_copy_marker(pure.stem), candidate.count("\\") + candidate.count("/"), len(candidate))
+
+
+def read_mapping(tsv: Path) -> dict[str, str]:
+    """
+    Collapsed filename -> the source file it came from, from map_collapsed_import's
+    mapping.tsv. A title-certain row names no single source, but every candidate is the
+    same film, so the shallowest one - the original rather than a copy - names it just
+    as well. Ambiguous and unmatched rows identify nothing and are left out.
+    """
+    found: dict[str, str] = {}
+    with tsv.open(newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh, delimiter="\t"):
+            name = (row.get("collapsed_file") or "").strip()
+            if not name:
+                continue
+            source = (row.get("source_path") or "").strip()
+            if not source and row.get("status") == "title-certain":
+                candidates = [c.strip() for c in (row.get("candidates") or "").split("|") if c.strip()]
+                if candidates:
+                    source = min(candidates, key=_original_first)
+            if source:
+                found[name] = source
+    return found
+
+
+def plan(folder: Path, movies_root: Path, mapping: Optional[dict[str, str]] = None) -> list[Recovery]:
     videos = sorted(p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in VIDEO_EXTS)
 
     # Every sourcepath sharing one directory means that directory was the dump folder,
@@ -117,31 +168,42 @@ def plan(folder: Path, movies_root: Path) -> list[Recovery]:
     for video in videos:
         nfo = video.with_suffix(".nfo")
         meta = _read_nfo(nfo) if nfo.exists() else {}
-        original = meta.get("sourcepath") or meta.get("originalfilename")
+        from_nfo = meta.get("sourcepath") or meta.get("originalfilename")
+        from_mapping = mapping.get(video.name) if mapping else None
+        # The mapping joins on bytes; the NFO is the metadata the bad import wrote. Bytes win.
+        original = from_mapping or from_nfo
+        via = "mapping" if from_mapping else ("nfo" if from_nfo else "")
         if not original:
+            lost = "no mapping row and no NFO" if mapping else "no NFO"
             plans.append(Recovery(video, nfo if nfo.exists() else None, None, None, None, None,
-                                  "no NFO: original filename lost"))
+                                  f"{lost}: original filename lost"))
             continue
 
         note, flagged = "", False
-        recorded = meta.get("size")
-        if recorded and recorded.isdigit():
-            try:
-                if int(recorded) != video.stat().st_size:
-                    note = "NFO size does not match this file - it may describe a different video"
-                    flagged = True
-            except OSError:
-                pass
+        if from_mapping and from_nfo and as_pure(from_mapping).name != as_pure(from_nfo).name:
+            note = f"NFO names a different source ({as_pure(from_nfo).name}) - check before moving"
+            flagged = True
+        elif via == "nfo":
+            recorded = meta.get("size")
+            if recorded and recorded.isdigit():
+                try:
+                    if int(recorded) != video.stat().st_size:
+                        note = "NFO size does not match this file - it may describe a different video"
+                        flagged = True
+                except OSError:
+                    pass
 
         title, year, quality, part = _derive(original, shared_parent)
         if len(title) < 2:
             plans.append(Recovery(video, nfo, original, None, year, None,
-                                  note or "could not derive a title from the original name"))
+                                  note or "could not derive a title from the original name",
+                                  via=via))
             continue
 
         stem = f"{title} {f'({year}) ' if year else ''}[{quality}]{part}"
         plans.append(Recovery(video, nfo, original, title, year,
-                              movies_root / title / f"{stem}{video.suffix.lower()}", note, flagged))
+                              movies_root / title / f"{stem}{video.suffix.lower()}", note, flagged,
+                              via=via))
     return plans
 
 
@@ -189,13 +251,14 @@ def apply(plans: list[Recovery], quarantine: Optional[Path], include_flagged: bo
 def write_report(plans: list[Recovery], report: Path) -> None:
     with report.open("w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh, delimiter="\t")
-        w.writerow(["status", "current_name", "size", "original", "recovered_title", "destination", "note"])
+        w.writerow(["status", "current_name", "size", "identified_by", "original",
+                    "recovered_title", "destination", "note"])
         for p in plans:
             try:
                 size = p.video.stat().st_size
             except OSError:
                 size = ""
-            w.writerow([p.status, p.video.name, size, p.original or "", p.title or "",
+            w.writerow([p.status, p.video.name, size, p.via, p.original or "", p.title or "",
                         str(p.dest) if p.dest else "", p.note])
 
 
@@ -210,6 +273,9 @@ def main() -> int:
     ap.add_argument("--include-flagged", action="store_true",
                     help="also move files whose NFO may describe a different video")
     ap.add_argument("--report", default=None, help="write a TSV report here (default: <folder>/recovery.tsv)")
+    ap.add_argument("--mapping", default=None,
+                    help="mapping.tsv from map_collapsed_import; identifies files whose NFO is "
+                         "missing, and outranks the NFO where both name a source")
     args = ap.parse_args()
 
     folder = Path(args.folder).expanduser().resolve()
@@ -219,7 +285,16 @@ def main() -> int:
     movies_root = Path(args.movies_root).expanduser().resolve() if args.movies_root else folder.parent
     quarantine = Path(args.quarantine).expanduser().resolve() if args.quarantine else None
 
-    plans = plan(folder, movies_root)
+    mapping = None
+    if args.mapping:
+        mapping_tsv = Path(args.mapping).expanduser()
+        if not mapping_tsv.is_file():
+            print(f"not a file: {mapping_tsv}", file=sys.stderr)
+            return 2
+        mapping = read_mapping(mapping_tsv)
+        print(f"mapping: {len(mapping)} of the folder's files identified by the size join\n")
+
+    plans = plan(folder, movies_root, mapping)
     if not plans:
         print(f"no video files under {folder}")
         return 0
