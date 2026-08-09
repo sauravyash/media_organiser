@@ -127,6 +127,19 @@ def _original_first(candidate: str) -> tuple:
     return (has_copy_marker(pure.stem), candidate.count("\\") + candidate.count("/"), len(candidate))
 
 
+def _same_source(a: str, b: str) -> bool:
+    """
+    Do two recorded paths name the same source file? A file manager's duplicate differs
+    from the original by a copy marker, and the two sides may disagree on case, but
+    "Metropolis (1927) 2.mp4" and "Metropolis (1927).mp4" are the same film either way.
+    """
+    def key(path: str) -> str:
+        pure = as_pure(path)
+        return (strip_copy_marker(pure.stem) + pure.suffix).casefold()
+
+    return key(a) == key(b)
+
+
 def read_mapping(tsv: Path) -> dict[str, str]:
     """
     Collapsed filename -> the source file it came from, from map_collapsed_import's
@@ -180,7 +193,7 @@ def plan(folder: Path, movies_root: Path, mapping: Optional[dict[str, str]] = No
             continue
 
         note, flagged = "", False
-        if from_mapping and from_nfo and as_pure(from_mapping).name != as_pure(from_nfo).name:
+        if from_mapping and from_nfo and not _same_source(from_mapping, from_nfo):
             note = f"NFO names a different source ({as_pure(from_nfo).name}) - check before moving"
             flagged = True
         elif via == "nfo":
