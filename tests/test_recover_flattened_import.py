@@ -138,3 +138,84 @@ def test_report_lists_every_file(library, tmp_path):
     assert lines[0].split("\t")[0] == "status"
     assert len(lines) == 3
     assert any("Fargo" in line for line in lines[1:])
+
+
+def _mapping(tmp_path: Path, rows: list[tuple[str, str, str, str]]) -> Path:
+    """A mapping.tsv as map_collapsed_import writes it: status, name, source, candidates."""
+    tsv = tmp_path / "mapping.tsv"
+    header = ["status", "collapsed_file", "size", "match_method", "source_path",
+              "proposed_title", "nfo_sourcepath", "nfo_agrees", "candidates"]
+    lines = ["\t".join(header)]
+    for status, name, source, candidates in rows:
+        lines.append("\t".join([status, name, "512", "size", source, "", "", "", candidates]))
+    tsv.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return tsv
+
+
+def test_mapping_identifies_a_file_with_no_nfo(library, tmp_path):
+    """The whole point: 214 of 248 files had no NFO, but the size join knows them."""
+    folder = library / "F"
+    _collapsed(folder, "F (1996) [Other].mp4", None)
+    tsv = _mapping(tmp_path, [("matched", "F (1996) [Other].mp4", r"F:\Fargo (1996).mp4", "")])
+
+    (p,) = recover.plan(folder, library, recover.read_mapping(tsv))
+    assert p.status == "recoverable"
+    assert p.via == "mapping"
+    assert p.dest == library / "Fargo" / "Fargo (1996) [Other].mp4"
+
+
+def test_mapping_reads_windows_source_paths_on_a_posix_server():
+    """A source inventory taken on Windows, read where backslash is an ordinary character."""
+    title, year, quality, part = recover._derive(
+        r"F:\New folder\Movies\Star.Wars.1977.1080p.BluRay.mp4", None)
+    assert (title, year, quality) == ("Star Wars", "1977", "1080p")
+
+
+def test_mapping_uses_the_shallowest_candidate_when_the_title_is_certain(library, tmp_path):
+    folder = library / "F"
+    _collapsed(folder, "F (1942) [Other].mp4", None)
+    tsv = _mapping(tmp_path, [(
+        "title-certain", "F (1942) [Other].mp4", "",
+        r"F:\New folder\Movies\Casablanca (1942).mp4 | F:\Casablanca (1942).mp4",
+    )])
+
+    (p,) = recover.plan(folder, library, recover.read_mapping(tsv))
+    assert p.original == r"F:\Casablanca (1942).mp4"
+    assert p.dest == library / "Casablanca" / "Casablanca (1942) [Other].mp4"
+
+
+def test_ambiguous_rows_identify_nothing(library, tmp_path):
+    folder = library / "F"
+    _collapsed(folder, "F (1942) [Other].mp4", None)
+    tsv = _mapping(tmp_path, [(
+        "ambiguous", "F (1942) [Other].mp4", "", r"F:\One (1942).mp4 | F:\Two (1942).mp4",
+    )])
+
+    (p,) = recover.plan(folder, library, recover.read_mapping(tsv))
+    assert p.status == "unidentified"
+
+
+def test_mapping_outranks_the_nfo_but_flags_the_disagreement(library, tmp_path):
+    """A stray NFO names the wrong film; the bytes win, but the file is held back."""
+    folder = library / "F"
+    _collapsed(folder, "F (1942) [Other].mp4", "/import/F/Nosferatu.1922.mp4")
+    tsv = _mapping(tmp_path, [("matched", "F (1942) [Other].mp4", r"F:\Casablanca (1942).mp4", "")])
+
+    (p,) = recover.plan(folder, library, recover.read_mapping(tsv))
+    assert p.status == "needs-review"
+    assert p.dest == library / "Casablanca" / "Casablanca (1942) [Other].mp4"
+    assert "Nosferatu.1922.mp4" in p.note
+
+    moved, _ = recover.apply([p], None, include_flagged=False)
+    assert moved == 0
+
+
+def test_agreeing_nfo_leaves_the_file_recoverable(library, tmp_path):
+    folder = library / "F"
+    _collapsed(folder, "F (1942) [Other].mp4", "/import/F/Casablanca (1942).mp4")
+    tsv = _mapping(tmp_path, [(
+        "matched", "F (1942) [Other].mp4", r"F:\New folder\Casablanca (1942).mp4", "")])
+
+    (p,) = recover.plan(folder, library, recover.read_mapping(tsv))
+    assert p.status == "recoverable"
+    assert p.note == ""
