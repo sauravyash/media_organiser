@@ -301,22 +301,53 @@ def movie_name_from_parents(path: Path, src_root=Path) -> Optional[str]:
     return None
 
 
+# A part marker sits at the end of a name, ahead of nothing but release junk:
+# "Movie (2010) part 1", "Movie.2010.DVDRip.part1-GRP". Title text after it - a year
+# above all - means the number belongs to the film ("Deathly Hallows Part 1 (2010)").
+_PART_TAIL_OF_N_RE = re.compile(r"(?i)^\s*of\s*\d+\b")
+_PART_TAIL_GROUP_RE = re.compile(r"(?i)-\s*[a-z0-9]+\s*$")
+_PART_TAIL_FILLER_RE = re.compile(r"[\s._\-\[\](){}]+")
+
+
+def _only_release_junk_follows(tail: str) -> bool:
+    tail = _PART_TAIL_OF_N_RE.sub(" ", tail)
+    tail = SCENE_WORDS.sub(" ", tail)
+    tail = RESOLUTION_PATTERN.sub(" ", tail)
+    tail = _PART_TAIL_GROUP_RE.sub(" ", tail)
+    return not _PART_TAIL_FILLER_RE.sub("", tail)
+
+
+def _part_marker(text: str) -> Optional[re.Match]:
+    """
+    The disc-marker match in ``text``, or None. "cd 1" is only ever a disc marker;
+    "part 1"/"pt 1" is one only at the end of the name, since a film's own title can
+    carry it (Deathly Hallows Part 1, Mockingjay Part 1).
+    """
+    for m in MOVIE_PART_RE.finditer(text):
+        if m.group(1) is not None or _only_release_junk_follows(text[m.end():]):
+            return m
+    return None
+
+
+def _part_number(m: re.Match) -> str:
+    return m.group(1) or m.group(2) or m.group(3)
+
+
 def movie_part_suffix(path: Path) -> str:
     """
     If the path (filename stem or parent dir) indicates a multi-part movie (CD1, CD2, Part1, etc.),
     return a suffix like ' CD1' or ' CD 2' for the output filename; otherwise return ''.
     """
     # Check filename stem first (e.g. Shrek.DVDRip.XviD.CD1-BELiAL)
-    m = MOVIE_PART_RE.search(path.stem)
+    m = _part_marker(path.stem)
     if m:
-        num = m.group(1) or m.group(2) or m.group(3)
-        return f" CD {num}"
-    # Check parent dir (e.g. .../CD 1/Shrek.avi)
+        return f" CD {_part_number(m)}"
+    # Check parent dir (e.g. .../CD 1/Shrek.avi). The whole folder must be the marker:
+    # a folder merely ending in one is the movie's own folder ("Deathly Hallows Part 1").
     if path.parent and path.parent.name:
-        m = MOVIE_PART_RE.search(path.parent.name)
+        m = MOVIE_PART_RE.fullmatch(path.parent.name.strip(" []().-_"))
         if m:
-            num = m.group(1) or m.group(2) or m.group(3)
-            return f" CD {num}"
+            return f" CD {_part_number(m)}"
     return ""
 
 
@@ -509,7 +540,9 @@ def count_distinct_movies(video_paths) -> int:
     """
     bases = set()
     for p in video_paths:
-        base = MOVIE_PART_RE.sub("", Path(p).stem)
+        stem = Path(p).stem
+        m = _part_marker(stem)
+        base = stem[:m.start()] + stem[m.end():] if m else stem
         base = re.sub(r"[\s._\-]+", " ", base).strip().lower()
         bases.add(base)
     return len(bases)
