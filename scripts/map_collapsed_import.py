@@ -34,7 +34,7 @@ import re
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Iterable, Optional
 import xml.etree.ElementTree as ET
 
@@ -49,6 +49,16 @@ from media_organiser.naming import (  # noqa: E402
     guess_year_for_movie,
     normalise_movie_title_for_display,
 )
+
+
+def as_pure(path: str) -> PurePath:
+    """
+    Read a path that was recorded on another machine. An inventory taken on Windows is
+    normally joined on the server, where ``Path`` treats a backslash as an ordinary
+    character - ``F:\\Casablanca (1942).mp4`` becomes one filename, drive letter and all,
+    and every name-based comparison against it silently fails.
+    """
+    return PureWindowsPath(path) if "\\" in path else PurePosixPath(path)
 
 
 @dataclass
@@ -92,7 +102,7 @@ class Match:
         """Does the size join land on the same file the NFO recorded? Ground truth."""
         if not self.nfo_source or self.source is None:
             return ""
-        same = Path(self.nfo_source).name == Path(self.source.path).name
+        same = as_pure(self.nfo_source).name == as_pure(self.source.path).name
         return "yes" if same else "NO - investigate"
 
 
@@ -172,14 +182,17 @@ _COPY_MARKER_RE = re.compile(r"(?<=\))\s+\d{1,2}\s*$")
 
 def _title_for(source: Entry, containers: set[Path]) -> str:
     """What a fixed re-import would call this file."""
-    p = Path(source.path)
-    if _COPY_MARKER_RE.search(p.stem):
-        p = p.with_name(_COPY_MARKER_RE.sub("", p.stem) + p.suffix)
-        source = Entry(str(p), source.size, source.fingerprint, live=False)
     if source.live:
+        p = Path(source.path)
+        if _COPY_MARKER_RE.search(p.stem):
+            p = p.with_name(_COPY_MARKER_RE.sub("", p.stem) + p.suffix)
         # Authoritative: same call the CLI makes, against the real tree.
         name, _ = guess_movie_name(p, p.parent, parent_is_container=p.parent in containers)
     else:
+        # The path was recorded elsewhere, so only its filename is safe to read here.
+        pure = as_pure(source.path)
+        stem = _COPY_MARKER_RE.sub("", pure.stem)
+        p = Path(stem + pure.suffix)
         name = guess_movie_name_from_file(p.name)
     title = normalise_movie_title_for_display(name)
     year = guess_year_for_movie(p)
