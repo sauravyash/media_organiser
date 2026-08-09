@@ -5,11 +5,17 @@ LABEL authors="yaa.sh"
 RUN apt-get update && apt-get install -y --no-install-recommends inotify-tools \
     && rm -rf /var/lib/apt/lists/*
 
+# beets backs the read-only /library/music dashboard. Pinned to match the
+# host library's schema: a newer beets migrates library.db on first run and
+# the older beets on the host may then refuse to open it.
+RUN pip install --no-cache-dir "beets==2.13.1"
+
 # Install Poetry and project with runtime deps (Flask for web, Pillow for organiser)
+# gunicorn serves the Flask app; the dev server is not for production use
 ENV POETRY_VERSION=1.7.1 \
     POETRY_HOME="/opt/poetry" \
     POETRY_VIRTUALENVS_CREATE=false
-RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}"
+RUN pip install --no-cache-dir "poetry==${POETRY_VERSION}" gunicorn
 
 WORKDIR /app
 COPY . /app
