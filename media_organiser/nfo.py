@@ -3,6 +3,8 @@ import re
 import xml.etree.ElementTree as ET
 from typing import Optional, Dict, Any, List
 
+from .constants import VIDEO_EXTS
+
 def xml_indent(elem: ET.Element, level: int = 0):
     i = "\n" + level*"  "
     if len(elem):
@@ -20,13 +22,64 @@ def nfo_path_for(dst_video: Path, scope: str, layout: str) -> Path:
         return dst_video.parent / "movie.nfo"
     return dst_video.with_suffix(".nfo")
 
+def holds_single_video(folder: Path) -> bool:
+    """
+    Whether ``folder`` contains exactly one video file in its whole subtree.
+
+    Used to decide if a folder-level NFO can be trusted. Stops counting at two,
+    so the expensive case (a flat import folder holding hundreds of movies) is
+    also the cheapest to reject.
+    """
+    seen = 0
+    try:
+        for p in folder.rglob("*"):
+            if p.is_file() and p.suffix.lower() in VIDEO_EXTS:
+                seen += 1
+                if seen > 1:
+                    return False
+    except OSError:
+        return False
+    return seen == 1
+
+
+def _folder_nfo(folder: Path) -> Optional[Path]:
+    """The folder's own NFO (Kodi ``movie.nfo`` layout), chosen deterministically."""
+    try:
+        nfos = sorted(p for p in folder.glob("*.nfo") if p.is_file())
+    except OSError:
+        return None
+    if not nfos:
+        return None
+    for p in nfos:
+        if p.name.lower() in ("movie.nfo", "tvshow.nfo"):
+            return p
+    return nfos[0]
+
+
 def find_nfo(path: Path) -> Optional[Path]:
+    """
+    The NFO describing ``path``, or None.
+
+    Only a same-stem NFO is a certain match. A folder-level NFO (the Kodi
+    ``movie.nfo`` layout) is accepted solely when that folder holds exactly one
+    video, so it cannot plausibly belong to anything else. Without that guard a
+    single stray NFO in a flat import folder is handed to every video beside it,
+    and — because an NFO title outranks every other signal in ``guess_movie_name``
+    — silently renames the entire import to one title.
+    """
     cand = path.with_suffix(".nfo")
-    if cand.exists(): return cand
-    for p in path.parent.glob("*.nfo"): return p
-    parent = path.parent.parent
-    if parent and parent != path.parent:
-        for p in parent.glob("*.nfo"): return p
+    if cand.exists():
+        return cand
+    seen: set[Path] = set()
+    for folder in (path.parent, path.parent.parent):
+        if folder in seen:
+            continue
+        seen.add(folder)
+        if not holds_single_video(folder):
+            continue
+        nfo = _folder_nfo(folder)
+        if nfo is not None:
+            return nfo
     return None
 
 

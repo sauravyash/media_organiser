@@ -363,3 +363,74 @@ def test_write_episode_nfo_omits_empty_subtitles_block(tmp_path, monkeypatch, ca
     root = ET.fromstring(xml)
     assert root.findtext("title") == "No Subs"
     assert root.find("subtitles") is None
+
+# --- find_nfo: a folder-level NFO must not be handed to unrelated videos ---
+
+def _movie(folder: Path, name: str) -> Path:
+    folder.mkdir(parents=True, exist_ok=True)
+    p = folder / name
+    p.write_bytes(b"vid")
+    return p
+
+
+def test_find_nfo_prefers_same_stem(tmp_path):
+    video = _movie(tmp_path, "Fargo (1996).mp4")
+    own = tmp_path / "Fargo (1996).nfo"
+    own.write_text("<movie><title>Fargo</title></movie>")
+    (tmp_path / "stray.nfo").write_text("<movie><title>F</title></movie>")
+
+    assert nfo.find_nfo(video) == own
+
+
+def test_find_nfo_uses_folder_nfo_for_a_single_movie_folder(tmp_path):
+    """The Kodi movie.nfo layout: one video, one folder-level NFO."""
+    folder = tmp_path / "Fargo (1996)"
+    video = _movie(folder, "video_ts.mp4")
+    movie_nfo = folder / "movie.nfo"
+    movie_nfo.write_text("<movie><title>Fargo</title></movie>")
+
+    assert nfo.find_nfo(video) == movie_nfo
+
+
+def test_find_nfo_ignores_stray_nfo_in_a_multi_movie_folder(tmp_path):
+    """
+    Regression: a flat import folder with one stray NFO used to hand that NFO to
+    every video beside it, collapsing a whole import into a single title.
+    """
+    dump = tmp_path / "import"
+    videos = [
+        _movie(dump, "Metropolis (1927).mp4"),
+        _movie(dump, "Citizen Kane (1941).mp4"),
+        _movie(dump, "Fargo (1996).mp4"),
+    ]
+    (dump / "F.nfo").write_text("<movie><title>F</title></movie>")
+
+    assert [nfo.find_nfo(v) for v in videos] == [None, None, None]
+
+
+def test_find_nfo_ignores_grandparent_nfo_when_it_covers_several_movies(tmp_path):
+    bucket = tmp_path / "F"
+    (bucket).mkdir()
+    (bucket / "F.nfo").write_text("<movie><title>F</title></movie>")
+    a = _movie(bucket / "Metropolis (1927)", "movie.mp4")
+    b = _movie(bucket / "Fargo (1996)", "movie.mp4")
+
+    assert nfo.find_nfo(a) is None
+    assert nfo.find_nfo(b) is None
+
+
+def test_find_nfo_uses_grandparent_nfo_for_a_lone_nested_video(tmp_path):
+    folder = tmp_path / "Fargo (1996)"
+    video = _movie(folder / "VIDEO_TS", "clip.mp4")
+    movie_nfo = folder / "movie.nfo"
+    movie_nfo.write_text("<movie><title>Fargo</title></movie>")
+
+    assert nfo.find_nfo(video) == movie_nfo
+
+
+def test_holds_single_video_stops_at_two(tmp_path):
+    assert nfo.holds_single_video(tmp_path) is False  # no videos at all
+    _movie(tmp_path, "one.mp4")
+    assert nfo.holds_single_video(tmp_path) is True
+    _movie(tmp_path, "two.mp4")
+    assert nfo.holds_single_video(tmp_path) is False
