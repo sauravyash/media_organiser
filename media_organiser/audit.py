@@ -14,6 +14,14 @@ from typing import Iterable, Optional
 SEVERITIES = ("high", "medium", "low")
 _SEVERITY_RANK = {name: i for i, name in enumerate(SEVERITIES)}
 
+# Action verbs the fix pipeline understands. They live here rather than in
+# :mod:`media_organiser.fixes` so the read-only audit can label an issue with
+# one without importing the write side.
+VERB_TRASH = "trash-file"
+VERB_RENAME_FILE = "rename-file"
+VERB_RENAME_FOLDER = "rename-folder"
+VERB_WRITE_NFO = "write-nfo"
+
 
 @dataclass
 class Issue:
@@ -22,11 +30,18 @@ class Issue:
     ``kind`` is a stable slug (used for filtering in the UI), ``message``
     explains what looks wrong, and ``suggestion`` — when present — is the
     concrete change to make (a target filename, or a ``beet`` command).
+
+    ``action`` is the same change expressed for a machine rather than a reader:
+    a ``verb`` from :mod:`media_organiser.fixes` plus the paths involved. Only
+    issues that can be resolved without a human decision carry one, and setting
+    it still mutates nothing — it is a recommendation the user may apply from
+    the dashboard.
     """
     kind: str
     severity: str
     message: str
     suggestion: Optional[str] = None
+    action: Optional[dict] = None
 
     def to_dict(self) -> dict:
         return asdict(self)

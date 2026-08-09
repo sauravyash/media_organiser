@@ -140,6 +140,13 @@
           <span class="mode-desc">Review the beets library, spot tag gaps.</span>
         </span>
       </a>
+      <a href="{{ url_for('fix_page') }}" class="mode-card {% if active_mode == 'movie-fix' %}active{% endif %}">
+        <span class="mode-icon" aria-hidden="true">🛠️</span>
+        <span class="mode-text">
+          <span class="mode-title">Fix library</span>
+          <span class="mode-desc">Apply renames, triage duplicates, undo.</span>
+        </span>
+      </a>
     </nav>
   </header>
   <main class="page-shell">
