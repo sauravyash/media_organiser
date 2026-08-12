@@ -430,6 +430,31 @@ def scan_movies(movies_root: Optional[Path] = None) -> list[dict]:
     return entries
 
 
+def _entry_year(entry: dict) -> Optional[str]:
+    """The year that says *which* movie a folder holds, preferring its own name."""
+    m = _PAREN_YEAR_RE.search(entry.get("folder") or "")
+    if m:
+        return m.group(1)
+    return entry.get("year") or None
+
+
+def _split_by_year(group: list[dict]) -> list[list[dict]]:
+    """Split a same-title group into one list per movie.
+
+    "Aladdin (1992)" and "Aladdin (2019)" share a title but are different films,
+    so they are not copies of each other. Folders that state no year are no
+    evidence of a second movie: they only stand apart once the rest genuinely
+    disagree, and then they go together rather than being folded into a year
+    they never claimed.
+    """
+    if len({y for y in (_entry_year(e) for e in group) if y}) < 2:
+        return [group]
+    by_year: dict[Optional[str], list[dict]] = {}
+    for entry in group:
+        by_year.setdefault(_entry_year(entry), []).append(entry)
+    return list(by_year.values())
+
+
 def _flag_duplicate_titles(entries: list[dict]) -> None:
     """Add a cross-folder duplicate issue where two folders mean the same movie."""
     by_key: dict[str, list[dict]] = {}
@@ -438,21 +463,24 @@ def _flag_duplicate_titles(entries: list[dict]) -> None:
         if key:
             by_key.setdefault(key, []).append(entry)
 
-    for group in by_key.values():
-        if len(group) < 2:
+    for key_group in by_key.values():
+        if len(key_group) < 2:
             continue
-        names = sorted(e["folder"] for e in group)
-        for entry in group:
-            siblings = [n for n in names if n != entry["folder"]]
-            issue = Issue(
-                kind="duplicate-title",
-                severity="high",
-                message=f"Same movie appears in {len(group)} folders: {', '.join(names)}.",
-                suggestion=f"Merge into one folder and delete {', '.join(repr(s) for s in siblings)}.",
-            )
-            existing = [Issue(**i) for i in entry["issues"]]
-            entry["issues"] = [i.to_dict() for i in sort_issues(existing + [issue])]
-            entry["severity"] = "high"
+        for group in _split_by_year(key_group):
+            if len(group) < 2:
+                continue
+            names = sorted(e["folder"] for e in group)
+            for entry in group:
+                siblings = [n for n in names if n != entry["folder"]]
+                issue = Issue(
+                    kind="duplicate-title",
+                    severity="high",
+                    message=f"Same movie appears in {len(group)} folders: {', '.join(names)}.",
+                    suggestion=f"Merge into one folder and delete {', '.join(repr(s) for s in siblings)}.",
+                )
+                existing = [Issue(**i) for i in entry["issues"]]
+                entry["issues"] = [i.to_dict() for i in sort_issues(existing + [issue])]
+                entry["severity"] = "high"
 
 
 def audit_movies(movies_root: Optional[Path] = None) -> dict:

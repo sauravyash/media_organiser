@@ -370,6 +370,72 @@ def test_inspect_folder_leaves_different_files_ungrouped(movies_root):
     assert detail["videos"][0]["size"] > detail["videos"][1]["size"]
 
 
+def test_inspect_folder_splits_same_title_different_years(movies_root):
+    same = b"a" * 4096
+    make_video(movies_root, "101 Dalmatians", "101 Dalmatians (1996) [Other].mp4", data=same)
+    make_video(movies_root, "101 Dalmatians", "101 Dalmatians (1996) [Other] (2).mp4", data=same)
+    make_video(movies_root, "101 Dalmatians", "101 Dalmatians (1961) [Other].avi", data=b"b" * 2048)
+
+    detail = fixes.inspect_folder(movies_root / "101 Dalmatians")
+    by_name = {v["name"]: v for v in detail["videos"]}
+
+    assert detail["editions"] == 2
+    assert by_name["101 Dalmatians (1996) [Other].mp4"]["edition"] == \
+        by_name["101 Dalmatians (1996) [Other] (2).mp4"]["edition"]
+    assert by_name["101 Dalmatians (1961) [Other].avi"]["edition"] != \
+        by_name["101 Dalmatians (1996) [Other].mp4"]["edition"]
+    assert by_name["101 Dalmatians (1961) [Other].avi"]["edition_label"] == "1961"
+
+
+def test_inspect_folder_keeps_one_edition_when_years_agree(movies_root):
+    make_video(movies_root, "Aladdin", "Aladdin (1992) [1080p].mkv", data=b"a" * 4096)
+    make_video(movies_root, "Aladdin", "Aladdin (1992) [720p].mp4", data=b"b" * 2048)
+
+    detail = fixes.inspect_folder(movies_root / "Aladdin")
+
+    assert detail["editions"] == 1
+    assert all(v["edition"] == 1 for v in detail["videos"])
+    assert all(v["edition_label"] == "1992" for v in detail["videos"])
+
+
+def test_inspect_folder_merges_editions_when_identical_bytes_disagree_on_year(movies_root):
+    # A copy filed under the wrong year: the bytes say it is the same movie, and
+    # identical bytes outrank whatever the filenames claim.
+    same = b"a" * 4096
+    make_video(movies_root, "Aladdin", "Aladdin (1992) [Other].mp4", data=same)
+    make_video(movies_root, "Aladdin", "Aladdin (2019) [Other].mp4", data=same)
+
+    detail = fixes.inspect_folder(movies_root / "Aladdin")
+
+    assert detail["identical_groups"] == 1
+    assert detail["editions"] == 1
+    assert all(v["edition_label"] == "1992 / 2019" for v in detail["videos"])
+
+
+def test_inspect_folder_leaves_undated_files_with_the_only_edition(movies_root):
+    make_video(movies_root, "Aladdin", "Aladdin (1992) [Other].mkv", data=b"a" * 4096)
+    make_video(movies_root, "Aladdin", "Aladdin [Other].avi", data=b"b" * 2048)
+
+    detail = fixes.inspect_folder(movies_root / "Aladdin")
+
+    # No second year is claimed, so nothing is held back from triage.
+    assert detail["editions"] == 1
+
+
+def test_inspect_folder_groups_undated_files_together_when_years_split(movies_root):
+    make_video(movies_root, "Aladdin", "Aladdin (1992) [Other].mkv", data=b"a" * 4096)
+    make_video(movies_root, "Aladdin", "Aladdin (2019) [Other].mkv", data=b"b" * 3072)
+    make_video(movies_root, "Aladdin", "Aladdin [Other].avi", data=b"c" * 2048)
+    make_video(movies_root, "Aladdin", "Aladdin copy [Other].avi", data=b"d" * 1024)
+
+    detail = fixes.inspect_folder(movies_root / "Aladdin")
+    by_name = {v["name"]: v for v in detail["videos"]}
+
+    assert detail["editions"] == 3
+    assert by_name["Aladdin [Other].avi"]["edition"] == by_name["Aladdin copy [Other].avi"]["edition"]
+    assert by_name["Aladdin [Other].avi"]["edition_label"] == "year unknown"
+
+
 def test_inspect_folder_marks_multi_part_movies(movies_root):
     make_video(movies_root, "Shrek Original", "Shrek Original [Other] CD 1.avi", data=b"a" * 2048)
     make_video(movies_root, "Shrek Original", "Shrek Original [Other] CD 2.avi", data=b"b" * 2048)

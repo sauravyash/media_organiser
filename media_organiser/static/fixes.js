@@ -280,7 +280,13 @@
 
   function initTriagePage(mount) {
     var el = document.querySelector(mount);
-    var state = { folders: [], index: 0, detail: null, keeper: null, busy: false, done: 0 };
+    var state = {
+      folders: [], index: 0, detail: null,
+      // One keeper per edition (the movie a file is a copy of) rather than one
+      // per folder: a 1961 and a 1996 "101 Dalmatians" each survive their own
+      // triage instead of one being trashed for the other.
+      keepers: {}, merged: false, busy: false, done: 0
+    };
 
     function current() {
       return state.folders[state.index] || null;
@@ -291,20 +297,55 @@
       return !!video.part;
     }
 
-    function chooseDefaultKeeper(detail) {
-      var candidates = (detail.videos || []).filter(function (v) { return !isLocked(v); });
-      if (!candidates.length) return null;
-      return candidates[0].path; // inspect_folder sorts biggest first
+    // "Treat as one movie" collapses the split for the case a year cannot catch:
+    // two copies of the same film where one filename carries the wrong year.
+    function editionOf(video) {
+      return state.merged ? 1 : (video.edition || 1);
+    }
+
+    function editionCount(detail) {
+      return state.merged ? 1 : (detail.editions || 1);
+    }
+
+    function chooseDefaultKeepers(detail) {
+      var keepers = {};
+      // inspect_folder sorts biggest first within each edition.
+      (detail.videos || []).forEach(function (v) {
+        if (isLocked(v)) return;
+        var edition = editionOf(v);
+        if (!keepers.hasOwnProperty(edition)) keepers[edition] = v.path;
+      });
+      return keepers;
+    }
+
+    function isKeeper(video) {
+      return !isLocked(video) && state.keepers[editionOf(video)] === video.path;
+    }
+
+    function removableVideos(detail) {
+      return (detail.videos || []).filter(function (v) {
+        return !isLocked(v) && !isKeeper(v);
+      });
     }
 
     function renderSpecs(detail) {
       var biggest = 0;
       (detail.videos || []).forEach(function (v) { if (v.size > biggest) biggest = v.size; });
       var pickIndex = 0;
+      var split = editionCount(detail) > 1;
+      var seen = {};
 
       var rows = (detail.videos || []).map(function (video) {
         var locked = isLocked(video);
-        var keeper = !locked && state.keeper === video.path;
+        var keeper = isKeeper(video);
+        var edition = editionOf(video);
+        var head = "";
+        if (split && !seen[edition]) {
+          seen[edition] = true;
+          head = '<tr class="edition-head"><td colspan="7">' +
+            esc(video.edition_label || "year unknown") +
+            " — kept as a separate movie</td></tr>";
+        }
         var key = "";
         if (!locked) {
           pickIndex += 1;
@@ -317,10 +358,10 @@
         if (locked) flags.push('<span class="badge low">' + esc(video.part) + "</span>");
         if (!video.nfo) flags.push('<span class="badge skipped">no nfo</span>');
 
-        return '<tr class="' + (locked ? "locked" : (keeper ? "keeper" : "")) + '">' +
+        return head + '<tr class="' + (locked ? "locked" : (keeper ? "keeper" : "")) + '">' +
           '<td class="pick">' + (locked
             ? '<span class="badge low">keep</span>'
-            : '<input type="radio" name="keeper" value="' + esc(video.path) + '"' +
+            : '<input type="radio" name="keeper-' + esc(edition) + '" value="' + esc(video.path) + '"' +
               (keeper ? " checked" : "") + ">") + "</td>" +
           '<td class="pick">' + (key ? '<span class="key">' + key + "</span>" : "") + "</td>" +
           '<td class="name">' + esc(video.name) + " " + flags.join(" ") + "</td>" +
@@ -342,15 +383,16 @@
       var detail = state.detail;
       if (!detail) return '<div class="state">Reading folder…</div>';
 
-      var removable = (detail.videos || []).filter(function (v) {
-        return !isLocked(v) && v.path !== state.keeper;
-      });
+      var removable = removableVideos(detail);
       var allIdentical = removable.length > 0 && removable.every(function (v) {
         return v.identical_group;
       });
 
       var warning = "";
-      if (!removable.length) {
+      if (!removable.length && editionCount(detail) > 1) {
+        warning = '<div class="note">Nothing to remove — the files here are different ' +
+          "movies that share a title, one copy of each. Skip to the next folder.</div>";
+      } else if (!removable.length) {
         warning = '<div class="note">Nothing to remove here — every file is a separate part ' +
           "of a multi-disc movie. Skip to the next folder.</div>";
       } else if (allIdentical) {
@@ -362,16 +404,34 @@
           "different movies filed together.</div>";
       }
 
+      // The years are only filenames. Offer the way out for a copy labelled with
+      // the wrong year, which would otherwise be held back as its own movie.
+      var mergeNote = "";
+      if (detail.editions > 1 && !state.merged) {
+        mergeNote = '<div class="note">Split into ' + detail.editions +
+          " movies by the year in each filename, so one copy of each is kept. " +
+          "If a year is wrong and these are really the same film, merge them.</div>";
+      } else if (detail.editions > 1) {
+        mergeNote = '<div class="note warn">Merged: every file is being treated as a copy ' +
+          "of one movie, ignoring the years in the names.</div>";
+      }
+      var mergeButton = detail.editions > 1
+        ? '<button type="button" class="btn" id="tri-merge">' +
+          (state.merged ? "Split by year again" : "Treat as one movie") + "</button>"
+        : "";
+
       return '<div class="triage-card">' +
         "<h2>" + esc(folder.folder) + "</h2>" +
         '<div class="path">' + esc(detail.path) + "</div>" +
         renderSpecs(detail) +
+        mergeNote +
         warning +
         '<div class="triage-actions">' +
         '<button type="button" class="btn btn-danger" id="tri-apply"' +
         (removable.length && !state.busy ? "" : " disabled") + ">" +
         (state.busy ? "Working…" : "Trash " + removable.length + " other" +
           (removable.length === 1 ? "" : "s")) + "</button>" +
+        mergeButton +
         '<button type="button" class="btn" id="tri-skip">Skip</button>' +
         '<button type="button" class="btn" id="tri-prev"' + (state.index ? "" : " disabled") +
         ">Previous</button>" +
@@ -402,11 +462,18 @@
     }
 
     function bind() {
-      Array.prototype.forEach.call(el.querySelectorAll('input[name="keeper"]'), function (radio) {
+      Array.prototype.forEach.call(el.querySelectorAll('input[name^="keeper-"]'), function (radio) {
         radio.addEventListener("change", function () {
-          state.keeper = radio.value;
+          state.keepers[radio.name.slice("keeper-".length)] = radio.value;
           render();
         });
+      });
+
+      var merge = document.getElementById("tri-merge");
+      if (merge) merge.addEventListener("click", function () {
+        state.merged = !state.merged;
+        state.keepers = chooseDefaultKeepers(state.detail);
+        render();
       });
 
       var apply = document.getElementById("tri-apply");
@@ -419,8 +486,7 @@
 
     function applyCurrent() {
       if (state.busy || !state.detail) return;
-      var actions = (state.detail.videos || [])
-        .filter(function (v) { return !isLocked(v) && v.path !== state.keeper; })
+      var actions = removableVideos(state.detail)
         .map(function (v) {
           return {
             verb: "trash-file",
@@ -455,7 +521,8 @@
       if (next < 0) next = 0;
       state.index = next;
       state.detail = null;
-      state.keeper = null;
+      state.keepers = {};
+      state.merged = false;
       render();
       if (state.index < state.folders.length) loadDetail();
     }
@@ -466,7 +533,7 @@
       getJSON("/api/library/movies/triage/folder?path=" + encodeURIComponent(folder.path))
         .then(function (detail) {
           state.detail = detail;
-          state.keeper = chooseDefaultKeeper(detail);
+          state.keepers = chooseDefaultKeepers(detail);
           render();
         })
         .catch(function (err) {
@@ -482,7 +549,7 @@
         var pickable = (state.detail.videos || []).filter(function (v) { return !isLocked(v); });
         var chosen = pickable[parseInt(e.key, 10) - 1];
         if (chosen) {
-          state.keeper = chosen.path;
+          state.keepers[editionOf(chosen)] = chosen.path;
           render();
         }
       } else if (e.key === "Enter") {
