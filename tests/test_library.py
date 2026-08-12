@@ -178,6 +178,24 @@ def test_duplicate_titles_are_cross_referenced(movies_root):
         assert entry["severity"] == "high"
 
 
+def test_same_title_different_years_are_not_duplicates(movies_root):
+    make_movie(movies_root, "Aladdin (1992)", "Aladdin (1992) [720p].mp4", nfo=False)
+    make_movie(movies_root, "Aladdin (2019)", "Aladdin (2019) [720p].mp4", nfo=False)
+    entries = scan_movies(movies_root)
+    for folder in ("Aladdin (1992)", "Aladdin (2019)"):
+        assert "duplicate-title" not in kinds(by_folder(entries, folder))
+
+
+def test_same_title_same_year_still_flagged_when_a_third_year_exists(movies_root):
+    make_movie(movies_root, "Aladdin (1992)", "Aladdin (1992) [720p].mp4", nfo=False)
+    make_movie(movies_root, "Aladdin (1992) [1080p]", "Aladdin (1992) [1080p].mp4", nfo=False)
+    make_movie(movies_root, "Aladdin (2019)", "Aladdin (2019) [720p].mp4", nfo=False)
+    entries = scan_movies(movies_root)
+    for folder in ("Aladdin (1992)", "Aladdin (1992) [1080p]"):
+        assert "duplicate-title" in kinds(by_folder(entries, folder))
+    assert "duplicate-title" not in kinds(by_folder(entries, "Aladdin (2019)"))
+
+
 def test_suspect_year_flags_title_year_confusion(movies_root):
     make_movie(movies_root, "Blade Runner", "Blade Runner (2049) [720p].mp4", nfo=False)
     entry = by_folder(scan_movies(movies_root), "Blade Runner")

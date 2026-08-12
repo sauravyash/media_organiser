@@ -790,6 +790,93 @@ def _fingerprint_or_none(path: Path) -> Optional[str]:
         return None
 
 
+def _label_editions(videos: list[dict]) -> int:
+    """Group files by the movie they are a copy of, and return how many there are.
+
+    A folder called "101 Dalmatians" can hold the 1961 film and the 1996 one:
+    same title, different movies, and trashing one for the other loses a film.
+    So files that state different years are split into separate *editions*, and
+    triage keeps a copy of each.
+
+    Two exceptions keep the split from being over-eager, because a stated year is
+    only a filename, not a fact:
+
+    * Byte-identical files share an edition however their names disagree —
+      identical bytes prove the year is wrong on one of them rather than that
+      two different movies happen to be the same size and fingerprint.
+    * A file that states no year is no evidence of a second movie, so it joins
+      the others instead of being held back as its own edition. Only when the
+      rest genuinely split across years do the year-less files group together.
+
+    ``videos`` is assumed sorted (biggest first); edition ids are handed out in
+    that order, so edition 1 holds the largest file.
+    """
+    parent = list(range(len(videos)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(a: int, b: int) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[max(ra, rb)] = min(ra, rb)
+
+    first_of_year: dict[str, int] = {}
+    for i, video in enumerate(videos):
+        year = video.get("year")
+        if not year:
+            continue
+        if year in first_of_year:
+            union(first_of_year[year], i)
+        else:
+            first_of_year[year] = i
+
+    # Identical bytes outrank the years in the names, and may merge two of the
+    # year groups built above back into one.
+    first_of_fp: dict[int, int] = {}
+    for i, video in enumerate(videos):
+        group = video.get("identical_group")
+        if not group:
+            continue
+        if group in first_of_fp:
+            union(first_of_fp[group], i)
+        else:
+            first_of_fp[group] = i
+
+    dated_roots = {find(i) for i, v in enumerate(videos) if v.get("year")}
+    undated = [i for i in range(len(videos)) if find(i) not in dated_roots]
+    if undated:
+        if len(dated_roots) == 1:
+            # Nothing to be ambiguous between: keep the old single-group behaviour.
+            union(next(iter(dated_roots)), undated[0])
+        for i in undated[1:]:
+            union(undated[0], i)
+
+    ids: dict[int, int] = {}
+    years_by_id: dict[int, list[str]] = {}
+    for i, video in enumerate(videos):
+        root = find(i)
+        if root not in ids:
+            ids[root] = len(ids) + 1
+            years_by_id[ids[root]] = []
+        edition = ids[root]
+        video["edition"] = edition
+        year = video.get("year")
+        if year and year not in years_by_id[edition]:
+            years_by_id[edition].append(year)
+
+    for video in videos:
+        years = sorted(years_by_id[video["edition"]])
+        video["edition_label"] = " / ".join(years) if years else "year unknown"
+
+    # Keep an edition's files adjacent without disturbing biggest-first inside it.
+    videos.sort(key=lambda v: v["edition"])
+    return len(ids)
+
+
 def inspect_folder(folder: Path) -> dict:
     """Per-file specs for one folder, with byte-identical files grouped.
 
@@ -824,6 +911,9 @@ def inspect_folder(folder: Path) -> dict:
             "part": movie_part_suffix(child).strip(),
             "fingerprint": None,
             "identical_group": None,
+            # Which movie this file is a copy of; filled in by _label_editions.
+            "edition": 1,
+            "edition_label": "",
         })
 
     by_size: dict[int, list[dict]] = {}
@@ -855,9 +945,11 @@ def inspect_folder(folder: Path) -> dict:
         bool(_NUMBERED_COPY_RE.search(Path(v["name"]).stem)),
         v["name"].lower(),
     ))
+    editions = _label_editions(videos)
     return {
         "folder": folder.name,
         "path": str(folder),
         "videos": videos,
         "identical_groups": group_no,
+        "editions": editions,
     }
